@@ -17,6 +17,9 @@ Usage:
     # Or dry-run to preview
     python3 trello2beads.py --dry-run
 
+    # Use custom status mapping
+    python3 trello2beads.py --status-mapping custom_mapping.json
+
 For full documentation, see README.md
 """
 
@@ -162,26 +165,44 @@ class TrelloToBeadsConverter:
     # Smart status mapping (conservative - only obvious cases)
     STATUS_KEYWORDS = {
         "closed": ["done", "completed", "closed", "archived", "finished"],
+        "blocked": ["blocked", "waiting", "waiting on", "on hold", "paused"],
+        "deferred": ["deferred", "someday", "maybe", "later", "backlog", "future"],
         "in_progress": ["doing", "in progress", "wip", "active", "current", "working"],
+        "open": ["todo", "to do", "planned", "ready"],
     }
 
-    @staticmethod
-    def list_to_status(list_name: str) -> str:
-        """Map list name to beads status (conservative)"""
-        list_lower = list_name.lower()
+    def list_to_status(self, list_name: str) -> str:
+        """Map list name to beads status (conservative)
 
-        # Check for closed keywords
-        if any(
-            keyword in list_lower for keyword in TrelloToBeadsConverter.STATUS_KEYWORDS["closed"]
-        ):
+        Priority order: closed > blocked > deferred > in_progress > open
+        This ensures definitive states take precedence over ambiguous ones.
+        """
+        list_lower = list_name.lower()
+        keywords = self.status_keywords
+
+        # Check in priority order: closed > blocked > deferred > in_progress > open
+
+        # Check for closed keywords (highest priority - most definitive)
+        if "closed" in keywords and any(keyword in list_lower for keyword in keywords["closed"]):
             return "closed"
 
-        # Check for in_progress keywords
-        if any(
-            keyword in list_lower
-            for keyword in TrelloToBeadsConverter.STATUS_KEYWORDS["in_progress"]
+        # Check for blocked keywords (explicit impediment)
+        if "blocked" in keywords and any(keyword in list_lower for keyword in keywords["blocked"]):
+            return "blocked"
+
+        # Check for deferred keywords (explicit postponement)
+        if "deferred" in keywords and any(keyword in list_lower for keyword in keywords["deferred"]):
+            return "deferred"
+
+        # Check for in_progress keywords (active work)
+        if "in_progress" in keywords and any(
+            keyword in list_lower for keyword in keywords["in_progress"]
         ):
             return "in_progress"
+
+        # Check for explicit open keywords (optional)
+        if "open" in keywords and any(keyword in list_lower for keyword in keywords["open"]):
+            return "open"
 
         # Default to open (safe)
         return "open"
@@ -340,12 +361,22 @@ class TrelloToBeadsConverter:
         if result.returncode != 0:
             print(f"    ⚠️  Warning: Failed to update description for {issue_id}: {result.stderr}")
 
-    def __init__(self, trello: TrelloReader, beads: BeadsWriter):
+    def __init__(
+        self,
+        trello: TrelloReader,
+        beads: BeadsWriter,
+        status_keywords: dict[str, list[str]] | None = None,
+    ):
         self.trello = trello
         self.beads = beads
         self.list_map: dict[str, str] = {}  # Trello list ID -> name
         self.trello_to_beads: dict[str, str] = {}  # Trello card ID -> beads issue ID
         self.card_url_map: dict[str, str] = {}  # Trello short URL -> beads issue ID
+
+        # Use custom keywords or fall back to class defaults
+        self.status_keywords = (
+            status_keywords if status_keywords is not None else self.STATUS_KEYWORDS
+        )
 
     def convert(self, dry_run: bool = False, snapshot_path: str | None = None) -> None:
         """Perform the conversion"""
@@ -552,6 +583,53 @@ class TrelloToBeadsConverter:
         print("=" * 60)
 
 
+def load_status_mapping(json_path: str) -> dict[str, list[str]]:
+    """Load custom status mapping from JSON file
+
+    Validates structure and merges with defaults for unspecified statuses.
+
+    Args:
+        json_path: Path to JSON file with status keyword mapping
+
+    Returns:
+        Merged status keywords dict (custom overrides + defaults)
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        ValueError: If JSON is invalid or contains bad data
+    """
+    if not Path(json_path).exists():
+        raise FileNotFoundError(f"Status mapping file not found: {json_path}")
+
+    try:
+        with open(json_path) as f:
+            custom_mapping = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in status mapping file: {e}")
+
+    if not isinstance(custom_mapping, dict):
+        raise ValueError("Status mapping must be a JSON object")
+
+    # Valid beads statuses
+    valid_statuses = {"open", "in_progress", "blocked", "deferred", "closed"}
+
+    for status, keywords in custom_mapping.items():
+        if status not in valid_statuses:
+            raise ValueError(
+                f"Invalid status '{status}'. Must be one of: {', '.join(sorted(valid_statuses))}"
+            )
+        if not isinstance(keywords, list):
+            raise ValueError(f"Keywords for '{status}' must be a list")
+        if not all(isinstance(k, str) for k in keywords):
+            raise ValueError(f"All keywords for '{status}' must be strings")
+
+    # Merge custom with defaults (custom overrides defaults for specified keys)
+    merged = TrelloToBeadsConverter.STATUS_KEYWORDS.copy()
+    merged.update(custom_mapping)
+
+    return merged
+
+
 def main() -> None:
     # Show help
     if "--help" in sys.argv or "-h" in sys.argv:
@@ -595,6 +673,23 @@ def main() -> None:
     dry_run = "--dry-run" in sys.argv or "-n" in sys.argv
     use_snapshot = "--use-snapshot" in sys.argv
 
+    # Parse --status-mapping flag
+    custom_status_keywords = None
+    if "--status-mapping" in sys.argv:
+        idx = sys.argv.index("--status-mapping")
+        if idx + 1 >= len(sys.argv):
+            print("❌ Error: --status-mapping requires a file path")
+            print("Usage: --status-mapping path/to/mapping.json")
+            sys.exit(1)
+
+        status_mapping_path = sys.argv[idx + 1]
+        try:
+            custom_status_keywords = load_status_mapping(status_mapping_path)
+            print(f"✅ Loaded custom status mapping from: {status_mapping_path}")
+        except (FileNotFoundError, ValueError) as e:
+            print(f"❌ Error loading status mapping: {e}")
+            sys.exit(1)
+
     # Find beads database (current directory or override)
     beads_db_path = os.getenv("BEADS_DB_PATH") or str(Path.cwd() / ".beads/beads.db")
 
@@ -615,7 +710,7 @@ def main() -> None:
     # Initialize components
     trello = TrelloReader(api_key, token, board_id)
     beads = BeadsWriter(db_path=beads_db_path)
-    converter = TrelloToBeadsConverter(trello, beads)
+    converter = TrelloToBeadsConverter(trello, beads, status_keywords=custom_status_keywords)
 
     # Run conversion
     try:

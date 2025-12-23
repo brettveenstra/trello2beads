@@ -1,0 +1,7 @@
+{
+  "closed": ["done", "completed", "closed", "archived", "finished"],
+  "blocked": ["blocked", "waiting", "waiting on", "on hold", "paused"],
+  "deferred": ["deferred", "someday", "maybe", "later", "backlog", "future"],
+  "in_progress": ["doing", "in progress", "wip", "active", "current", "working"],
+  "open": ["todo", "to do", "planned", "ready"]
+}

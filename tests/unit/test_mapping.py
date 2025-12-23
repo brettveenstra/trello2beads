@@ -18,26 +18,45 @@ class TestListToStatusMapping:
     # Recreate the logic for testing (will be replaced with actual import later)
     STATUS_KEYWORDS = {
         "closed": ["done", "completed", "closed", "archived", "finished"],
+        "blocked": ["blocked", "waiting", "waiting on", "on hold", "paused"],
+        "deferred": ["deferred", "someday", "maybe", "later", "backlog", "future"],
         "in_progress": ["doing", "in progress", "wip", "active", "current", "working"],
+        "open": ["todo", "to do", "planned", "ready"],
     }
 
     @staticmethod
     def list_to_status(list_name: str) -> str:
-        """Map list name to beads status (conservative)"""
-        list_lower = list_name.lower()
+        """Map list name to beads status (conservative)
 
-        # Check for closed keywords
-        if any(
-            keyword in list_lower for keyword in TestListToStatusMapping.STATUS_KEYWORDS["closed"]
-        ):
+        Priority order: closed > blocked > deferred > in_progress > open
+        This ensures definitive states take precedence over ambiguous ones.
+        """
+        list_lower = list_name.lower()
+        keywords = TestListToStatusMapping.STATUS_KEYWORDS
+
+        # Check in priority order: closed > blocked > deferred > in_progress > open
+
+        # Check for closed keywords (highest priority - most definitive)
+        if "closed" in keywords and any(keyword in list_lower for keyword in keywords["closed"]):
             return "closed"
 
-        # Check for in_progress keywords
-        if any(
-            keyword in list_lower
-            for keyword in TestListToStatusMapping.STATUS_KEYWORDS["in_progress"]
+        # Check for blocked keywords (explicit impediment)
+        if "blocked" in keywords and any(keyword in list_lower for keyword in keywords["blocked"]):
+            return "blocked"
+
+        # Check for deferred keywords (explicit postponement)
+        if "deferred" in keywords and any(keyword in list_lower for keyword in keywords["deferred"]):
+            return "deferred"
+
+        # Check for in_progress keywords (active work)
+        if "in_progress" in keywords and any(
+            keyword in list_lower for keyword in keywords["in_progress"]
         ):
             return "in_progress"
+
+        # Check for explicit open keywords (optional)
+        if "open" in keywords and any(keyword in list_lower for keyword in keywords["open"]):
+            return "open"
 
         # Default to open (safe)
         return "open"
@@ -90,9 +109,9 @@ class TestListToStatusMapping:
         """'To Do' list should map to open status (default)"""
         assert self.list_to_status("To Do") == "open"
 
-    def test_backlog_maps_to_open(self):
-        """'Backlog' list should map to open status (default)"""
-        assert self.list_to_status("Backlog") == "open"
+    def test_backlog_maps_to_deferred(self):
+        """'Backlog' list should map to deferred status"""
+        assert self.list_to_status("Backlog") == "deferred"
 
     def test_ideas_maps_to_open(self):
         """'Ideas' list should map to open status (default)"""
@@ -154,7 +173,7 @@ class TestListToStatusMapping:
         """Test common Trello list names"""
         test_cases = [
             ("To Do", "open"),
-            ("Backlog", "open"),
+            ("Backlog", "deferred"),  # Changed: now maps to deferred
             ("Next Up", "open"),
             ("In Progress", "in_progress"),
             ("Doing", "in_progress"),
@@ -163,6 +182,12 @@ class TestListToStatusMapping:
             ("Completed", "closed"),
             ("Archived", "closed"),  # Full word 'archived' in keywords
             ("Archive", "open"),  # 'archive' != 'archived', no match
+            ("Blocked", "blocked"),  # New
+            ("Waiting On", "blocked"),  # New
+            ("On Hold", "blocked"),  # New
+            ("Someday", "deferred"),  # New
+            ("Later", "deferred"),  # New
+            ("Future", "deferred"),  # New
         ]
 
         for list_name, expected_status in test_cases:
@@ -170,3 +195,62 @@ class TestListToStatusMapping:
             assert actual_status == expected_status, (
                 f"List '{list_name}' should map to '{expected_status}', got '{actual_status}'"
             )
+
+    # Tests for blocked status
+    def test_blocked_maps_to_blocked(self):
+        """'Blocked' list should map to blocked status"""
+        assert self.list_to_status("Blocked") == "blocked"
+
+    def test_waiting_maps_to_blocked(self):
+        """'Waiting' list should map to blocked status"""
+        assert self.list_to_status("Waiting") == "blocked"
+
+    def test_waiting_on_maps_to_blocked(self):
+        """'Waiting On' list should map to blocked status"""
+        assert self.list_to_status("Waiting On") == "blocked"
+
+    def test_on_hold_maps_to_blocked(self):
+        """'On Hold' list should map to blocked status"""
+        assert self.list_to_status("On Hold") == "blocked"
+
+    def test_paused_maps_to_blocked(self):
+        """'Paused' list should map to blocked status"""
+        assert self.list_to_status("Paused") == "blocked"
+
+    # Tests for deferred status
+    def test_deferred_maps_to_deferred(self):
+        """'Deferred' list should map to deferred status"""
+        assert self.list_to_status("Deferred") == "deferred"
+
+    def test_someday_maps_to_deferred(self):
+        """'Someday' list should map to deferred status"""
+        assert self.list_to_status("Someday") == "deferred"
+
+    def test_maybe_maps_to_deferred(self):
+        """'Maybe' list should map to deferred status"""
+        assert self.list_to_status("Maybe") == "deferred"
+
+    def test_later_maps_to_deferred(self):
+        """'Later' list should map to deferred status"""
+        assert self.list_to_status("Later") == "deferred"
+
+    def test_future_maps_to_deferred(self):
+        """'Future' list should map to deferred status"""
+        assert self.list_to_status("Future") == "deferred"
+
+    # Priority order tests
+    def test_priority_closed_over_blocked(self):
+        """If both keywords present, 'closed' should win over 'blocked'"""
+        assert self.list_to_status("Done Blocked") == "closed"
+
+    def test_priority_blocked_over_deferred(self):
+        """If both keywords present, 'blocked' should win over 'deferred'"""
+        assert self.list_to_status("Blocked Later") == "blocked"
+
+    def test_priority_deferred_over_in_progress(self):
+        """If both keywords present, 'deferred' should win over 'in_progress'"""
+        assert self.list_to_status("Backlog Doing") == "deferred"
+
+    def test_priority_in_progress_over_open(self):
+        """If both keywords present, 'in_progress' should win over 'open'"""
+        assert self.list_to_status("Doing To Do") == "in_progress"

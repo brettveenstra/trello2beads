@@ -114,6 +114,37 @@ This shows:
 - Features that will be preserved (checklists, attachments, comments)
 - No actual issues created
 
+### Custom Status Mapping
+
+Override the default status keyword mapping with a JSON configuration file:
+
+```bash
+# Create custom mapping file
+cat > my_mapping.json <<'EOF'
+{
+  "closed": ["done", "completed", "closed", "archived", "finished", "shipped"],
+  "blocked": ["blocked", "waiting", "waiting on", "on hold", "paused", "stuck"],
+  "deferred": ["deferred", "someday", "maybe", "later", "backlog", "future"],
+  "in_progress": ["doing", "in progress", "wip", "active", "current", "working"],
+  "open": ["todo", "to do", "planned", "ready"]
+}
+EOF
+
+# Run with custom mapping
+python3 trello2beads.py --status-mapping my_mapping.json
+```
+
+**Partial overrides** are supported - unspecified statuses use defaults:
+
+```json
+{
+  "blocked": ["stuck", "impediment"],
+  "deferred": ["icebox", "parking lot"]
+}
+```
+
+See `status_mapping.example.json` for a complete template.
+
 ### Custom Paths
 
 Override default paths using environment variables:
@@ -166,14 +197,21 @@ Trello list names are mapped to beads status using keyword matching:
 
 | List Name Examples | Beads Status |
 |-------------------|--------------|
-| "To Do", "Backlog" | `open` |
+| "To Do" | `open` |
 | "Doing", "In Progress", "WIP" | `in_progress` |
+| "Blocked", "Waiting On", "On Hold" | `blocked` |
+| "Backlog", "Someday", "Later" | `deferred` |
 | "Done", "Completed", "Archived" | `closed` |
 | Anything else | `open` (safe default) |
 
-Keywords matched (case-insensitive):
+Default keywords matched (case-insensitive):
 - **closed**: done, completed, closed, archived, finished
+- **blocked**: blocked, waiting, waiting on, on hold, paused
+- **deferred**: deferred, someday, maybe, later, backlog, future
 - **in_progress**: doing, in progress, wip, active, current, working
+- **open**: (default for anything not matching above)
+
+Customize with `--status-mapping mapping.json` (see Custom Status Mapping section).
 
 The original list name is preserved as a label (`list:To Do`) for filtering.
 
@@ -359,12 +397,19 @@ You've already converted this board to this beads database. Either:
 
 ### Issues Have Wrong Status
 
-Check your list names - the mapping uses keywords:
-- Lists with "done", "complete" → `closed`
-- Lists with "doing", "wip" → `in_progress`
+Check your list names - the mapping uses default keywords:
+- Lists with "done", "complete", etc. → `closed`
+- Lists with "blocked", "waiting", etc. → `blocked`
+- Lists with "deferred", "backlog", etc. → `deferred`
+- Lists with "doing", "wip", etc. → `in_progress`
 - Everything else → `open`
 
-You can manually update status after conversion:
+**Solution 1**: Create a custom mapping file:
+```bash
+python3 trello2beads.py --status-mapping custom.json
+```
+
+**Solution 2**: Manually update status after conversion:
 ```bash
 bd update <issue-id> --status closed
 ```
@@ -384,7 +429,7 @@ A: Yes, but it will fail if issues with the same `external_ref` already exist. U
 A: They're preserved as Markdown links in the issue description. Files are NOT downloaded.
 
 **Q: Can I customize the status mapping?**
-A: Not in V1. The mapping logic is hard-coded. V2 will support configurable mappings.
+A: Yes! Use `--status-mapping path/to/mapping.json` to override default keywords. See the "Custom Status Mapping" section for details.
 
 **Q: Where are my comments?**
 A: Comments are added to the issue description in a `## Comments` section, preserving author, date, and text.
