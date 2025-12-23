@@ -1,0 +1,18 @@
+{
+  "board": {
+    "id": "board_empty_123",
+    "name": "Empty Test Board",
+    "url": "https://trello.com/b/board_empty_123",
+    "desc": "A board with no cards for edge case testing"
+  },
+  "lists": [
+    {
+      "id": "list_empty",
+      "name": "Empty List",
+      "pos": 0
+    }
+  ],
+  "cards": [],
+  "comments": {},
+  "timestamp": 1703548800
+}

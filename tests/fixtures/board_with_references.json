@@ -1,0 +1,87 @@
+{
+  "board": {
+    "id": "board_refs_123",
+    "name": "Test Board with Card References",
+    "url": "https://trello.com/b/board_refs_123"
+  },
+  "lists": [
+    {
+      "id": "list_tasks",
+      "name": "Tasks",
+      "pos": 0
+    }
+  ],
+  "cards": [
+    {
+      "id": "card_parent",
+      "name": "Parent Task: API Implementation",
+      "desc": "Implement the new REST API. See https://trello.com/c/ref002 for authentication details.",
+      "idList": "list_tasks",
+      "pos": 0,
+      "shortLink": "ref001",
+      "shortUrl": "https://trello.com/c/ref001",
+      "url": "https://trello.com/c/ref001/parent-task-api-implementation",
+      "badges": {
+        "comments": 1
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": [
+        {
+          "id": "att_1",
+          "name": "Related Task",
+          "url": "https://trello.com/c/ref003/database-schema",
+          "bytes": 0
+        }
+      ]
+    },
+    {
+      "id": "card_auth",
+      "name": "Subtask: Authentication",
+      "desc": "Implement JWT authentication for the API",
+      "idList": "list_tasks",
+      "pos": 1,
+      "shortLink": "ref002",
+      "shortUrl": "https://trello.com/c/ref002",
+      "url": "https://trello.com/c/ref002/subtask-authentication",
+      "badges": {
+        "comments": 0
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": []
+    },
+    {
+      "id": "card_database",
+      "name": "Subtask: Database Schema",
+      "desc": "Design database schema for user management. Blocked by https://trello.com/c/ref002",
+      "idList": "list_tasks",
+      "pos": 2,
+      "shortLink": "ref003",
+      "shortUrl": "https://trello.com/c/ref003",
+      "url": "https://trello.com/c/ref003/subtask-database-schema",
+      "badges": {
+        "comments": 0
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": []
+    }
+  ],
+  "comments": {
+    "card_parent": [
+      {
+        "id": "comment_ref_1",
+        "data": {
+          "text": "Don't forget to check trello.com/c/ref002 before starting implementation"
+        },
+        "date": "2024-01-17T10:00:00.000Z",
+        "memberCreator": {
+          "fullName": "Project Manager",
+          "username": "pm"
+        }
+      }
+    ]
+  },
+  "timestamp": 1703462400
+}

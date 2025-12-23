@@ -1,0 +1,222 @@
+{
+  "board": {
+    "id": "test_board_123",
+    "name": "Test Todo Board",
+    "url": "https://trello.com/b/test_board_123",
+    "desc": "A simple test board for unit testing"
+  },
+  "lists": [
+    {
+      "id": "list_todo",
+      "name": "To Do",
+      "pos": 0,
+      "closed": false
+    },
+    {
+      "id": "list_doing",
+      "name": "Doing",
+      "pos": 1,
+      "closed": false
+    },
+    {
+      "id": "list_done",
+      "name": "Done",
+      "pos": 2,
+      "closed": false
+    }
+  ],
+  "cards": [
+    {
+      "id": "card_1",
+      "name": "Write README",
+      "desc": "Add project documentation",
+      "idList": "list_todo",
+      "pos": 0,
+      "shortLink": "abc001",
+      "shortUrl": "https://trello.com/c/abc001",
+      "url": "https://trello.com/c/abc001/write-readme",
+      "badges": {
+        "comments": 0,
+        "attachments": 0,
+        "checkItems": 0,
+        "checkItemsChecked": 0
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": []
+    },
+    {
+      "id": "card_2",
+      "name": "Setup CI/CD",
+      "desc": "Configure GitHub Actions",
+      "idList": "list_todo",
+      "pos": 1,
+      "shortLink": "abc002",
+      "shortUrl": "https://trello.com/c/abc002",
+      "url": "https://trello.com/c/abc002/setup-cicd",
+      "badges": {
+        "comments": 0,
+        "attachments": 0,
+        "checkItems": 0,
+        "checkItemsChecked": 0
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": []
+    },
+    {
+      "id": "card_3",
+      "name": "Add tests",
+      "desc": "Write unit tests for core functionality",
+      "idList": "list_todo",
+      "pos": 2,
+      "shortLink": "abc003",
+      "shortUrl": "https://trello.com/c/abc003",
+      "url": "https://trello.com/c/abc003/add-tests",
+      "badges": {
+        "comments": 0,
+        "attachments": 0,
+        "checkItems": 0,
+        "checkItemsChecked": 0
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": []
+    },
+    {
+      "id": "card_4",
+      "name": "Implement authentication",
+      "desc": "Add user authentication system",
+      "idList": "list_doing",
+      "pos": 0,
+      "shortLink": "abc004",
+      "shortUrl": "https://trello.com/c/abc004",
+      "url": "https://trello.com/c/abc004/implement-authentication",
+      "badges": {
+        "comments": 0,
+        "attachments": 0,
+        "checkItems": 0,
+        "checkItemsChecked": 0
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": []
+    },
+    {
+      "id": "card_5",
+      "name": "Update dependencies",
+      "desc": "Upgrade to latest versions",
+      "idList": "list_doing",
+      "pos": 1,
+      "shortLink": "abc005",
+      "shortUrl": "https://trello.com/c/abc005",
+      "url": "https://trello.com/c/abc005/update-dependencies",
+      "badges": {
+        "comments": 0,
+        "attachments": 0,
+        "checkItems": 0,
+        "checkItemsChecked": 0
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": []
+    },
+    {
+      "id": "card_6",
+      "name": "Initial project setup",
+      "desc": "Created repository and basic structure",
+      "idList": "list_done",
+      "pos": 0,
+      "shortLink": "abc006",
+      "shortUrl": "https://trello.com/c/abc006",
+      "url": "https://trello.com/c/abc006/initial-project-setup",
+      "badges": {
+        "comments": 0,
+        "attachments": 0,
+        "checkItems": 0,
+        "checkItemsChecked": 0
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": []
+    },
+    {
+      "id": "card_7",
+      "name": "Choose tech stack",
+      "desc": "Decided on Python + Flask",
+      "idList": "list_done",
+      "pos": 1,
+      "shortLink": "abc007",
+      "shortUrl": "https://trello.com/c/abc007",
+      "url": "https://trello.com/c/abc007/choose-tech-stack",
+      "badges": {
+        "comments": 0,
+        "attachments": 0,
+        "checkItems": 0,
+        "checkItemsChecked": 0
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": []
+    },
+    {
+      "id": "card_8",
+      "name": "Design database schema",
+      "desc": "Created initial database design",
+      "idList": "list_done",
+      "pos": 2,
+      "shortLink": "abc008",
+      "shortUrl": "https://trello.com/c/abc008",
+      "url": "https://trello.com/c/abc008/design-database-schema",
+      "badges": {
+        "comments": 0,
+        "attachments": 0,
+        "checkItems": 0,
+        "checkItemsChecked": 0
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": []
+    },
+    {
+      "id": "card_9",
+      "name": "Write project proposal",
+      "desc": "Documented project goals and scope",
+      "idList": "list_done",
+      "pos": 3,
+      "shortLink": "abc009",
+      "shortUrl": "https://trello.com/c/abc009",
+      "url": "https://trello.com/c/abc009/write-project-proposal",
+      "badges": {
+        "comments": 0,
+        "attachments": 0,
+        "checkItems": 0,
+        "checkItemsChecked": 0
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": []
+    },
+    {
+      "id": "card_10",
+      "name": "Get approval",
+      "desc": "Project approved by stakeholders",
+      "idList": "list_done",
+      "pos": 4,
+      "shortLink": "abc010",
+      "shortUrl": "https://trello.com/c/abc010",
+      "url": "https://trello.com/c/abc010/get-approval",
+      "badges": {
+        "comments": 0,
+        "attachments": 0,
+        "checkItems": 0,
+        "checkItemsChecked": 0
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": []
+    }
+  ],
+  "comments": {},
+  "timestamp": 1703289600
+}

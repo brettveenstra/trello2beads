@@ -1,0 +1,109 @@
+{
+  "board": {
+    "id": "board_comments_123",
+    "name": "Test Board with Comments",
+    "url": "https://trello.com/b/board_comments_123"
+  },
+  "lists": [
+    {
+      "id": "list_backlog",
+      "name": "Backlog",
+      "pos": 0
+    },
+    {
+      "id": "list_done",
+      "name": "Done",
+      "pos": 1
+    }
+  ],
+  "cards": [
+    {
+      "id": "card_with_comment",
+      "name": "Feature Request: Dark Mode",
+      "desc": "Users have requested a dark mode option",
+      "idList": "list_backlog",
+      "pos": 0,
+      "shortLink": "cmt001",
+      "shortUrl": "https://trello.com/c/cmt001",
+      "url": "https://trello.com/c/cmt001/feature-request-dark-mode",
+      "badges": {
+        "comments": 2
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": []
+    },
+    {
+      "id": "card_single_comment",
+      "name": "Bug: Login fails on mobile",
+      "desc": "Mobile users can't log in",
+      "idList": "list_backlog",
+      "pos": 1,
+      "shortLink": "cmt002",
+      "shortUrl": "https://trello.com/c/cmt002",
+      "url": "https://trello.com/c/cmt002/bug-login-fails-on-mobile",
+      "badges": {
+        "comments": 1
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": []
+    },
+    {
+      "id": "card_no_comments",
+      "name": "Documentation update",
+      "desc": "Update API docs",
+      "idList": "list_done",
+      "pos": 0,
+      "shortLink": "cmt003",
+      "shortUrl": "https://trello.com/c/cmt003",
+      "url": "https://trello.com/c/cmt003/documentation-update",
+      "badges": {
+        "comments": 0
+      },
+      "labels": [],
+      "checklists": [],
+      "attachments": []
+    }
+  ],
+  "comments": {
+    "card_with_comment": [
+      {
+        "id": "comment_1",
+        "data": {
+          "text": "We should implement this using CSS variables for easy theme switching"
+        },
+        "date": "2024-01-15T10:30:00.000Z",
+        "memberCreator": {
+          "fullName": "Alice Developer",
+          "username": "alice"
+        }
+      },
+      {
+        "id": "comment_2",
+        "data": {
+          "text": "Good idea! I can work on this next sprint."
+        },
+        "date": "2024-01-15T14:45:00.000Z",
+        "memberCreator": {
+          "fullName": "Bob Designer",
+          "username": "bob"
+        }
+      }
+    ],
+    "card_single_comment": [
+      {
+        "id": "comment_3",
+        "data": {
+          "text": "Reproduced on iOS 16. The session cookie isn't being set correctly."
+        },
+        "date": "2024-01-16T09:15:00.000Z",
+        "memberCreator": {
+          "fullName": "Charlie Tester",
+          "username": "charlie"
+        }
+      }
+    ]
+  },
+  "timestamp": 1703376000
+}
