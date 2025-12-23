@@ -40,3 +40,13 @@ def board_with_references_fixture(fixtures_dir):
         with open(fixture_file) as f:
             return json.load(f)
     return None
+
+
+@pytest.fixture
+def empty_board_fixture(fixtures_dir):
+    """Load empty board test fixture"""
+    fixture_file = fixtures_dir / "empty_board.json"
+    if fixture_file.exists():
+        with open(fixture_file) as f:
+            return json.load(f)
+    return None
