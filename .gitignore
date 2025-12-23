@@ -45,3 +45,10 @@ Thumbs.db
 # Test outputs
 _scratch/
 test_*/
+htmlcov/
+.coverage
+coverage.xml
+.pytest_cache/
+
+# Virtual environment
+.venv/
