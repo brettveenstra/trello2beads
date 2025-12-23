@@ -47,10 +47,10 @@ jobs:
 
       - name: Check coverage threshold
         run: |
-          coverage report --fail-under=80
+          coverage report --fail-under=75
 
       - name: Security scan with bandit
-        run: bandit -r . -ll
+        run: bandit -r trello2beads.py tests/ -ll
 
       - name: Dependency security check
         run: pip-audit

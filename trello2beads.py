@@ -46,7 +46,7 @@ class TrelloReader:
         if params:
             auth_params.update(params)
 
-        response = requests.get(url, params=auth_params)
+        response = requests.get(url, params=auth_params, timeout=30)
         response.raise_for_status()
         return cast(Any, response.json())
 
