@@ -191,7 +191,9 @@ class TrelloToBeadsConverter:
             return "blocked"
 
         # Check for deferred keywords (explicit postponement)
-        if "deferred" in keywords and any(keyword in list_lower for keyword in keywords["deferred"]):
+        if "deferred" in keywords and any(
+            keyword in list_lower for keyword in keywords["deferred"]
+        ):
             return "deferred"
 
         # Check for in_progress keywords (active work)
@@ -605,7 +607,7 @@ def load_status_mapping(json_path: str) -> dict[str, list[str]]:
         with open(json_path) as f:
             custom_mapping = json.load(f)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON in status mapping file: {e}")
+        raise ValueError(f"Invalid JSON in status mapping file: {e}") from e
 
     if not isinstance(custom_mapping, dict):
         raise ValueError("Status mapping must be a JSON object")

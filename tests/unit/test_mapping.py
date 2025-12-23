@@ -2,11 +2,16 @@
 Unit tests for Trello list → beads status mapping
 """
 
+import json
 import sys
 from pathlib import Path
 
+import pytest
+
 # Add parent directory to path to import trello2beads module
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from trello2beads import load_status_mapping
 
 # We'll need to extract the class or make it importable
 # For now, let's test the logic directly by recreating it
@@ -45,7 +50,9 @@ class TestListToStatusMapping:
             return "blocked"
 
         # Check for deferred keywords (explicit postponement)
-        if "deferred" in keywords and any(keyword in list_lower for keyword in keywords["deferred"]):
+        if "deferred" in keywords and any(
+            keyword in list_lower for keyword in keywords["deferred"]
+        ):
             return "deferred"
 
         # Check for in_progress keywords (active work)
@@ -254,3 +261,117 @@ class TestListToStatusMapping:
     def test_priority_in_progress_over_open(self):
         """If both keywords present, 'in_progress' should win over 'open'"""
         assert self.list_to_status("Doing To Do") == "in_progress"
+
+
+class TestLoadStatusMapping:
+    """Test the load_status_mapping function for custom status mapping"""
+
+    def test_file_not_found(self, tmp_path):
+        """Should raise FileNotFoundError if file doesn't exist"""
+        nonexistent_file = tmp_path / "nonexistent.json"
+        with pytest.raises(FileNotFoundError, match="Status mapping file not found"):
+            load_status_mapping(str(nonexistent_file))
+
+    def test_invalid_json(self, tmp_path):
+        """Should raise ValueError for invalid JSON"""
+        invalid_json = tmp_path / "invalid.json"
+        invalid_json.write_text("{ this is not valid json }")
+        with pytest.raises(ValueError, match="Invalid JSON in status mapping file"):
+            load_status_mapping(str(invalid_json))
+
+    def test_not_a_dict(self, tmp_path):
+        """Should raise ValueError if mapping is not a dict"""
+        not_dict = tmp_path / "not_dict.json"
+        not_dict.write_text('["list", "of", "strings"]')
+        with pytest.raises(ValueError, match="Status mapping must be a JSON object"):
+            load_status_mapping(str(not_dict))
+
+    def test_invalid_status_key(self, tmp_path):
+        """Should raise ValueError for invalid status key"""
+        invalid_status = tmp_path / "invalid_status.json"
+        invalid_status.write_text('{"invalid_status": ["keyword"]}')
+        with pytest.raises(ValueError, match="Invalid status 'invalid_status'"):
+            load_status_mapping(str(invalid_status))
+
+    def test_keywords_not_a_list(self, tmp_path):
+        """Should raise ValueError if keywords is not a list"""
+        not_list = tmp_path / "not_list.json"
+        not_list.write_text('{"open": "not a list"}')
+        with pytest.raises(ValueError, match="Keywords for 'open' must be a list"):
+            load_status_mapping(str(not_list))
+
+    def test_keywords_contain_non_strings(self, tmp_path):
+        """Should raise ValueError if keywords contain non-strings"""
+        non_strings = tmp_path / "non_strings.json"
+        non_strings.write_text('{"open": ["valid", 123, "another"]}')
+        with pytest.raises(ValueError, match="All keywords for 'open' must be strings"):
+            load_status_mapping(str(non_strings))
+
+    def test_valid_mapping_success(self, tmp_path):
+        """Should successfully load and merge valid custom mapping"""
+        valid_mapping = tmp_path / "valid.json"
+        custom_data = {"blocked": ["stuck", "impediment"], "deferred": ["icebox"]}
+        valid_mapping.write_text(json.dumps(custom_data))
+
+        result = load_status_mapping(str(valid_mapping))
+
+        # Should contain custom keywords for blocked and deferred
+        assert "stuck" in result["blocked"]
+        assert "impediment" in result["blocked"]
+        assert "icebox" in result["deferred"]
+
+        # Should also contain default keywords from other statuses
+        assert "open" in result
+        assert "closed" in result
+        assert "in_progress" in result
+
+    def test_partial_override(self, tmp_path):
+        """Custom mapping should override only specified statuses, keep defaults for rest"""
+        partial_mapping = tmp_path / "partial.json"
+        custom_data = {"blocked": ["custom_blocked"]}
+        partial_mapping.write_text(json.dumps(custom_data))
+
+        result = load_status_mapping(str(partial_mapping))
+
+        # Blocked should only have custom keyword (override)
+        assert result["blocked"] == ["custom_blocked"]
+
+        # Other statuses should have defaults
+        assert "done" in result["closed"]
+        assert "todo" in result["open"]
+        assert "doing" in result["in_progress"]
+        assert "backlog" in result["deferred"]
+
+    def test_all_valid_statuses(self, tmp_path):
+        """Should accept all five valid status keys"""
+        all_statuses = tmp_path / "all_statuses.json"
+        custom_data = {
+            "open": ["custom_open"],
+            "in_progress": ["custom_progress"],
+            "blocked": ["custom_blocked"],
+            "deferred": ["custom_deferred"],
+            "closed": ["custom_closed"],
+        }
+        all_statuses.write_text(json.dumps(custom_data))
+
+        result = load_status_mapping(str(all_statuses))
+
+        # All should be overridden
+        assert result["open"] == ["custom_open"]
+        assert result["in_progress"] == ["custom_progress"]
+        assert result["blocked"] == ["custom_blocked"]
+        assert result["deferred"] == ["custom_deferred"]
+        assert result["closed"] == ["custom_closed"]
+
+    def test_empty_keywords_list(self, tmp_path):
+        """Should allow empty keywords list (edge case)"""
+        empty_keywords = tmp_path / "empty.json"
+        empty_keywords.write_text('{"open": []}')
+
+        result = load_status_mapping(str(empty_keywords))
+
+        # Should override open with empty list
+        assert result["open"] == []
+
+        # Other statuses should still have defaults
+        assert "done" in result["closed"]
