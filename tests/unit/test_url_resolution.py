@@ -1,8 +1,8 @@
 """
 Unit tests for Trello URL resolution logic
 """
+
 import re
-import pytest
 
 # Import the URL resolution logic
 # For now, recreate the regex pattern here (will be refactored to import later)
@@ -12,9 +12,7 @@ class TestTrelloURLPattern:
     """Test the Trello URL regex pattern"""
 
     # Recreate the pattern from trello2beads.py
-    TRELLO_URL_PATTERN = re.compile(
-        r'(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?'
-    )
+    TRELLO_URL_PATTERN = re.compile(r"(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?")
 
     def test_https_full_url(self):
         """Match full HTTPS URL with card name"""
@@ -165,7 +163,8 @@ class TestURLReplacement:
             Text with Trello URLs replaced by beads references
         """
         import re
-        pattern = re.compile(r'(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?')
+
+        pattern = re.compile(r"(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?")
 
         result = text
         for match in pattern.finditer(text):
@@ -189,10 +188,7 @@ class TestURLReplacement:
     def test_multiple_url_replacement(self):
         """Replace multiple Trello URLs"""
         text = "See https://trello.com/c/abc123 and https://trello.com/c/def456"
-        url_map = {
-            "abc123": "myproject-111",
-            "def456": "myproject-222"
-        }
+        url_map = {"abc123": "myproject-111", "def456": "myproject-222"}
 
         result = self.replace_trello_urls(text, url_map)
         assert result == "See See myproject-111 and See myproject-222"
@@ -295,11 +291,7 @@ class TestURLReplacement:
         text = """First task: https://trello.com/c/task001
 Second task: https://trello.com/c/task002
 Third task: https://trello.com/c/task003"""
-        url_map = {
-            "task001": "myproject-t1",
-            "task002": "myproject-t2",
-            "task003": "myproject-t3"
-        }
+        url_map = {"task001": "myproject-t1", "task002": "myproject-t2", "task003": "myproject-t3"}
 
         result = self.replace_trello_urls(text, url_map)
         assert "See myproject-t1" in result
@@ -312,7 +304,7 @@ class TestAttachmentURLHandling:
 
     def test_attachment_url_extraction(self):
         """Extract short link from attachment URL"""
-        pattern = re.compile(r'(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?')
+        pattern = re.compile(r"(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?")
 
         attachment_url = "https://trello.com/c/ref003/database-schema"
         match = pattern.search(attachment_url)
@@ -322,7 +314,7 @@ class TestAttachmentURLHandling:
 
     def test_attachment_url_without_name(self):
         """Attachment URL without card name"""
-        pattern = re.compile(r'(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?')
+        pattern = re.compile(r"(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?")
 
         attachment_url = "https://trello.com/c/att123"
         match = pattern.search(attachment_url)
@@ -332,7 +324,7 @@ class TestAttachmentURLHandling:
 
     def test_non_trello_attachment_url(self):
         """Non-Trello attachment URLs should not match"""
-        pattern = re.compile(r'(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?')
+        pattern = re.compile(r"(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?")
 
         attachment_url = "https://docs.google.com/document/123"
         match = pattern.search(attachment_url)
@@ -345,7 +337,7 @@ class TestEdgeCases:
 
     def test_url_with_special_chars_after(self):
         """URL followed by special characters"""
-        pattern = re.compile(r'(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?')
+        pattern = re.compile(r"(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?")
 
         test_cases = [
             ("https://trello.com/c/abc123.", "abc123"),
@@ -362,7 +354,7 @@ class TestEdgeCases:
 
     def test_very_long_card_name(self):
         """Very long card names should still work"""
-        pattern = re.compile(r'(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?')
+        pattern = re.compile(r"(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?")
 
         url = "https://trello.com/c/abc123/this-is-a-very-long-card-name-with-many-words-and-dashes"
         match = pattern.search(url)
@@ -372,7 +364,7 @@ class TestEdgeCases:
 
     def test_unicode_in_surrounding_text(self):
         """Unicode characters in surrounding text"""
-        pattern = re.compile(r'(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?')
+        pattern = re.compile(r"(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?")
 
         text = "Related: https://trello.com/c/abc123 ✓ Done"
         match = pattern.search(text)
@@ -382,7 +374,7 @@ class TestEdgeCases:
 
     def test_url_only_text(self):
         """Text containing only a URL"""
-        pattern = re.compile(r'(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?')
+        pattern = re.compile(r"(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?")
 
         text = "https://trello.com/c/abc123"
         match = pattern.search(text)
@@ -393,7 +385,7 @@ class TestEdgeCases:
 
     def test_url_with_fragment(self):
         """URL with fragment identifier"""
-        pattern = re.compile(r'(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?')
+        pattern = re.compile(r"(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?")
 
         # Fragment would be included in the card name part
         text = "https://trello.com/c/abc123/card#comment-123"

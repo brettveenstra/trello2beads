@@ -1,7 +1,7 @@
 """
 Unit tests for Trello list → beads status mapping
 """
-import pytest
+
 import sys
 from pathlib import Path
 
@@ -17,8 +17,8 @@ class TestListToStatusMapping:
 
     # Recreate the logic for testing (will be replaced with actual import later)
     STATUS_KEYWORDS = {
-        'closed': ['done', 'completed', 'closed', 'archived', 'finished'],
-        'in_progress': ['doing', 'in progress', 'wip', 'active', 'current', 'working']
+        "closed": ["done", "completed", "closed", "archived", "finished"],
+        "in_progress": ["doing", "in progress", "wip", "active", "current", "working"],
     }
 
     @staticmethod
@@ -27,15 +27,20 @@ class TestListToStatusMapping:
         list_lower = list_name.lower()
 
         # Check for closed keywords
-        if any(keyword in list_lower for keyword in TestListToStatusMapping.STATUS_KEYWORDS['closed']):
-            return 'closed'
+        if any(
+            keyword in list_lower for keyword in TestListToStatusMapping.STATUS_KEYWORDS["closed"]
+        ):
+            return "closed"
 
         # Check for in_progress keywords
-        if any(keyword in list_lower for keyword in TestListToStatusMapping.STATUS_KEYWORDS['in_progress']):
-            return 'in_progress'
+        if any(
+            keyword in list_lower
+            for keyword in TestListToStatusMapping.STATUS_KEYWORDS["in_progress"]
+        ):
+            return "in_progress"
 
         # Default to open (safe)
-        return 'open'
+        return "open"
 
     def test_done_maps_to_closed(self):
         """'Done' list should map to closed status"""
@@ -162,5 +167,6 @@ class TestListToStatusMapping:
 
         for list_name, expected_status in test_cases:
             actual_status = self.list_to_status(list_name)
-            assert actual_status == expected_status, \
+            assert actual_status == expected_status, (
                 f"List '{list_name}' should map to '{expected_status}', got '{actual_status}'"
+            )

@@ -1,9 +1,11 @@
 """
 Shared pytest fixtures for trello2beads tests
 """
-import pytest
+
 import json
 from pathlib import Path
+
+import pytest
 
 
 @pytest.fixture

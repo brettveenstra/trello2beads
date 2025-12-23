@@ -1,6 +1,7 @@
 """
 Smoke test to verify test infrastructure works
 """
+
 import pytest
 
 

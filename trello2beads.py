@@ -20,13 +20,14 @@ Usage:
 For full documentation, see README.md
 """
 
-import os
-import sys
 import json
-import requests
+import os
 import subprocess
-from typing import Dict, List, Any
+import sys
 from pathlib import Path
+from typing import Any, Dict, List
+
+import requests
 
 
 class TrelloReader:
@@ -41,7 +42,7 @@ class TrelloReader:
     def _request(self, endpoint: str, params: Dict = None) -> Any:
         """Make authenticated request to Trello API"""
         url = f"{self.base_url}/{endpoint}"
-        auth_params = {'key': self.api_key, 'token': self.token}
+        auth_params = {"key": self.api_key, "token": self.token}
         if params:
             auth_params.update(params)
 
@@ -51,26 +52,23 @@ class TrelloReader:
 
     def get_board(self) -> Dict:
         """Get board info"""
-        return self._request(f"boards/{self.board_id}", {'fields': 'name,desc,url'})
+        return self._request(f"boards/{self.board_id}", {"fields": "name,desc,url"})
 
     def get_lists(self) -> List[Dict]:
         """Get all lists on the board"""
-        return self._request(f"boards/{self.board_id}/lists", {'fields': 'name,id,pos'})
+        return self._request(f"boards/{self.board_id}/lists", {"fields": "name,id,pos"})
 
     def get_cards(self) -> List[Dict]:
         """Get all cards with full details"""
         cards = self._request(
             f"boards/{self.board_id}/cards",
-            {'attachments': 'true', 'checklists': 'all', 'fields': 'all'}
+            {"attachments": "true", "checklists": "all", "fields": "all"},
         )
         return cards
 
     def get_card_comments(self, card_id: str) -> List[Dict]:
         """Get all comments for a card"""
-        comments = self._request(
-            f"cards/{card_id}/actions",
-            {'filter': 'commentCard'}
-        )
+        comments = self._request(f"cards/{card_id}/actions", {"filter": "commentCard"})
         return comments
 
 
@@ -81,31 +79,44 @@ class BeadsWriter:
         """Initialize with optional custom database path"""
         self.db_path = db_path
 
-    def create_issue(self, title: str, description: str = "", status: str = "open",
-                    priority: int = 2, issue_type: str = "task", labels: List[str] = None,
-                    external_ref: str = None) -> str:
+    def create_issue(
+        self,
+        title: str,
+        description: str = "",
+        status: str = "open",
+        priority: int = 2,
+        issue_type: str = "task",
+        labels: List[str] = None,
+        external_ref: str = None,
+    ) -> str:
         """Create a beads issue and return its ID"""
-        cmd = ['bd']
+        cmd = ["bd"]
 
         # Add --db flag if custom database specified
         if self.db_path:
-            cmd.extend(['--db', self.db_path])
+            cmd.extend(["--db", self.db_path])
 
-        cmd.extend([
-            'create',
-            '--title', title,
-            '--description', description,
-            '--priority', str(priority),
-            '--type', issue_type
-        ])
+        cmd.extend(
+            [
+                "create",
+                "--title",
+                title,
+                "--description",
+                description,
+                "--priority",
+                str(priority),
+                "--type",
+                issue_type,
+            ]
+        )
 
         # Add labels if provided
         if labels:
-            cmd.extend(['--labels', ','.join(labels)])
+            cmd.extend(["--labels", ",".join(labels)])
 
         # Add external reference if provided
         if external_ref:
-            cmd.extend(['--external-ref', external_ref])
+            cmd.extend(["--external-ref", external_ref])
 
         result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -114,28 +125,28 @@ class BeadsWriter:
 
         # Parse issue ID from output (format: "✓ Created issue: trello2beads-xyz")
         issue_id = None
-        for line in result.stdout.split('\n'):
-            if 'Created issue:' in line:
-                issue_id = line.split('Created issue:')[1].strip()
+        for line in result.stdout.split("\n"):
+            if "Created issue:" in line:
+                issue_id = line.split("Created issue:")[1].strip()
                 break
 
         if not issue_id:
             raise RuntimeError(f"Could not parse issue ID from output: {result.stdout}")
 
         # Update status if not 'open' (bd create defaults to open)
-        if status != 'open':
+        if status != "open":
             self.update_status(issue_id, status)
 
         return issue_id
 
     def update_status(self, issue_id: str, status: str):
         """Update issue status"""
-        cmd = ['bd']
+        cmd = ["bd"]
 
         if self.db_path:
-            cmd.extend(['--db', self.db_path])
+            cmd.extend(["--db", self.db_path])
 
-        cmd.extend(['update', issue_id, '--status', status])
+        cmd.extend(["update", issue_id, "--status", status])
 
         result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -148,8 +159,8 @@ class TrelloToBeadsConverter:
 
     # Smart status mapping (conservative - only obvious cases)
     STATUS_KEYWORDS = {
-        'closed': ['done', 'completed', 'closed', 'archived', 'finished'],
-        'in_progress': ['doing', 'in progress', 'wip', 'active', 'current', 'working']
+        "closed": ["done", "completed", "closed", "archived", "finished"],
+        "in_progress": ["doing", "in progress", "wip", "active", "current", "working"],
     }
 
     @staticmethod
@@ -158,17 +169,24 @@ class TrelloToBeadsConverter:
         list_lower = list_name.lower()
 
         # Check for closed keywords
-        if any(keyword in list_lower for keyword in TrelloToBeadsConverter.STATUS_KEYWORDS['closed']):
-            return 'closed'
+        if any(
+            keyword in list_lower for keyword in TrelloToBeadsConverter.STATUS_KEYWORDS["closed"]
+        ):
+            return "closed"
 
         # Check for in_progress keywords
-        if any(keyword in list_lower for keyword in TrelloToBeadsConverter.STATUS_KEYWORDS['in_progress']):
-            return 'in_progress'
+        if any(
+            keyword in list_lower
+            for keyword in TrelloToBeadsConverter.STATUS_KEYWORDS["in_progress"]
+        ):
+            return "in_progress"
 
         # Default to open (safe)
-        return 'open'
+        return "open"
 
-    def _resolve_card_references(self, cards: List[Dict], comments_by_card: Dict[str, List[Dict]]) -> int:
+    def _resolve_card_references(
+        self, cards: List[Dict], comments_by_card: Dict[str, List[Dict]]
+    ) -> int:
         """
         Second pass: Find Trello card URLs in descriptions/attachments/comments
         and replace with beads issue references
@@ -179,17 +197,15 @@ class TrelloToBeadsConverter:
 
         # Regex patterns for Trello card URLs
         # Matches: https://trello.com/c/abc123 or trello.com/c/abc123/card-name
-        trello_url_pattern = re.compile(
-            r'(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?'
-        )
+        trello_url_pattern = re.compile(r"(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?")
 
         for card in cards:
-            beads_id = self.trello_to_beads.get(card['id'])
+            beads_id = self.trello_to_beads.get(card["id"])
             if not beads_id:
                 continue
 
             # Get current description from card
-            original_desc = card.get('desc', '')
+            original_desc = card.get("desc", "")
             updated_desc = original_desc
             replacements_made = False
 
@@ -211,12 +227,11 @@ class TrelloToBeadsConverter:
                     print(f"  ✓ Resolved {short_link} → {target_beads_id} in description")
 
             # Process comments for Trello URLs
-            card_comments = comments_by_card.get(card['id'], [])
+            card_comments = comments_by_card.get(card["id"], [])
             updated_comments = []
-            comments_changed = False
 
             for comment in card_comments:
-                comment_text = comment['data']['text']
+                comment_text = comment["data"]["text"]
                 updated_text = comment_text
 
                 # Find and replace Trello URLs in comment
@@ -229,21 +244,20 @@ class TrelloToBeadsConverter:
                     if target_beads_id:
                         beads_ref = f"See {target_beads_id}"
                         updated_text = updated_text.replace(full_url, beads_ref)
-                        comments_changed = True
                         replacements_made = True
                         print(f"  ✓ Resolved {short_link} → {target_beads_id} in comment")
 
                 # Store updated comment
                 updated_comment = comment.copy()
-                updated_comment['data'] = comment['data'].copy()
-                updated_comment['data']['text'] = updated_text
+                updated_comment["data"] = comment["data"].copy()
+                updated_comment["data"]["text"] = updated_text
                 updated_comments.append(updated_comment)
 
             # Also check attachments for Trello card links
             attachment_refs = []
-            if card.get('attachments'):
-                for att in card['attachments']:
-                    att_url = att.get('url', '')
+            if card.get("attachments"):
+                for att in card["attachments"]:
+                    att_url = att.get("url", "")
                     match = trello_url_pattern.search(att_url)
 
                     if match:
@@ -251,10 +265,9 @@ class TrelloToBeadsConverter:
                         target_beads_id = self.card_url_map.get(short_link)
 
                         if target_beads_id:
-                            attachment_refs.append({
-                                'name': att['name'],
-                                'beads_id': target_beads_id
-                            })
+                            attachment_refs.append(
+                                {"name": att["name"], "beads_id": target_beads_id}
+                            )
                             replacements_made = True
                             print(f"  ✓ Attachment '{att['name']}' → {target_beads_id}")
 
@@ -267,20 +280,22 @@ class TrelloToBeadsConverter:
                     desc_parts.append(updated_desc)
 
                 # Add checklists (unchanged)
-                if card.get('checklists'):
+                if card.get("checklists"):
                     desc_parts.append("\n## Checklists\n")
-                    for checklist in card['checklists']:
+                    for checklist in card["checklists"]:
                         desc_parts.append(f"### {checklist['name']}\n")
-                        for item in checklist.get('checkItems', []):
-                            status_mark = '✓' if item['state'] == 'complete' else '☐'
+                        for item in checklist.get("checkItems", []):
+                            status_mark = "✓" if item["state"] == "complete" else "☐"
                             desc_parts.append(f"- [{status_mark}] {item['name']}")
                         desc_parts.append("")
 
                 # Add attachments (with references if any)
-                if card.get('attachments'):
+                if card.get("attachments"):
                     desc_parts.append("\n## Attachments\n")
-                    for att in card['attachments']:
-                        desc_parts.append(f"- [{att['name']}]({att['url']}) ({att.get('bytes', 0)} bytes)")
+                    for att in card["attachments"]:
+                        desc_parts.append(
+                            f"- [{att['name']}]({att['url']}) ({att.get('bytes', 0)} bytes)"
+                        )
                     desc_parts.append("")
 
                 # Add attachment references if any
@@ -293,9 +308,9 @@ class TrelloToBeadsConverter:
                 if updated_comments:
                     desc_parts.append("\n## Comments\n")
                     for comment in reversed(updated_comments):  # Oldest first
-                        author = comment.get('memberCreator', {}).get('fullName', 'Unknown')
-                        date = comment.get('date', '')[:10]
-                        text = comment['data']['text']
+                        author = comment.get("memberCreator", {}).get("fullName", "Unknown")
+                        date = comment.get("date", "")[:10]
+                        text = comment["data"]["text"]
 
                         desc_parts.append(f"**{author}** ({date}):")
                         desc_parts.append(f"> {text}")
@@ -311,12 +326,12 @@ class TrelloToBeadsConverter:
 
     def _update_description(self, issue_id: str, new_description: str):
         """Update beads issue description"""
-        cmd = ['bd']
+        cmd = ["bd"]
 
         if self.beads.db_path:
-            cmd.extend(['--db', self.beads.db_path])
+            cmd.extend(["--db", self.beads.db_path])
 
-        cmd.extend(['update', issue_id, '--description', new_description])
+        cmd.extend(["update", issue_id, "--description", new_description])
 
         result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -340,10 +355,10 @@ class TrelloToBeadsConverter:
             print(f"📂 Loading existing snapshot: {snapshot_path}")
             with open(snapshot_path) as f:
                 snapshot = json.load(f)
-            board = snapshot['board']
-            lists = snapshot['lists']
-            cards = snapshot['cards']
-            comments_by_card = snapshot.get('comments', {})
+            board = snapshot["board"]
+            lists = snapshot["lists"]
+            cards = snapshot["cards"]
+            comments_by_card = snapshot.get("comments", {})
             print(f"✅ Loaded {len(cards)} cards from snapshot")
         else:
             print("🌐 Fetching from Trello API...")
@@ -354,27 +369,29 @@ class TrelloToBeadsConverter:
             # Fetch comments for cards that have them
             print("💬 Fetching comments...")
             comments_by_card = {}
-            cards_with_comments = [c for c in cards if c.get('badges', {}).get('comments', 0) > 0]
+            cards_with_comments = [c for c in cards if c.get("badges", {}).get("comments", 0) > 0]
 
             for i, card in enumerate(cards_with_comments, 1):
-                card_id = card['id']
+                card_id = card["id"]
                 comments = self.trello.get_card_comments(card_id)
                 if comments:
                     comments_by_card[card_id] = comments
-                    print(f"  {i}/{len(cards_with_comments)}: {len(comments)} comments on '{card['name']}'")
+                    print(
+                        f"  {i}/{len(cards_with_comments)}: {len(comments)} comments on '{card['name']}'"
+                    )
 
             # Save snapshot for debugging/re-runs
             snapshot = {
-                'board': board,
-                'lists': lists,
-                'cards': cards,
-                'comments': comments_by_card,
-                'timestamp': Path(__file__).stat().st_mtime  # Use file mtime as proxy
+                "board": board,
+                "lists": lists,
+                "cards": cards,
+                "comments": comments_by_card,
+                "timestamp": Path(__file__).stat().st_mtime,  # Use file mtime as proxy
             }
 
             if snapshot_path:
                 Path(snapshot_path).parent.mkdir(parents=True, exist_ok=True)
-                with open(snapshot_path, 'w') as f:
+                with open(snapshot_path, "w") as f:
                     json.dump(snapshot, f, indent=2)
                 print(f"💾 Saved snapshot: {snapshot_path}")
 
@@ -386,25 +403,25 @@ class TrelloToBeadsConverter:
 
         # Build list map
         for lst in lists:
-            self.list_map[lst['id']] = lst['name']
+            self.list_map[lst["id"]] = lst["name"]
 
         # Sort cards by position
-        cards_sorted = sorted(cards, key=lambda c: (c['idList'], c.get('pos', 0)))
+        cards_sorted = sorted(cards, key=lambda c: (c["idList"], c.get("pos", 0)))
 
         # FIRST PASS: Create all issues and build mapping
         print("🔄 Pass 1: Creating beads issues...")
         created_count = 0
         for card in cards_sorted:
-            list_name = self.list_map.get(card['idList'], 'Unknown')
+            list_name = self.list_map.get(card["idList"], "Unknown")
             status = self.list_to_status(list_name)
 
             # Create labels: preserve list name for querying
             labels = [f"list:{list_name}"]
 
             # Add original Trello labels if present
-            if card.get('labels'):
-                for label in card['labels']:
-                    if label.get('name'):
+            if card.get("labels"):
+                for label in card["labels"]:
+                    if label.get("name"):
                         labels.append(f"trello-label:{label['name']}")
 
             # External reference for debugging (Trello short link)
@@ -413,34 +430,36 @@ class TrelloToBeadsConverter:
             # Build description
             desc_parts = []
 
-            if card.get('desc'):
-                desc_parts.append(card['desc'])
+            if card.get("desc"):
+                desc_parts.append(card["desc"])
 
             # Add checklists
-            if card.get('checklists'):
+            if card.get("checklists"):
                 desc_parts.append("\n## Checklists\n")
-                for checklist in card['checklists']:
+                for checklist in card["checklists"]:
                     desc_parts.append(f"### {checklist['name']}\n")
-                    for item in checklist.get('checkItems', []):
-                        status_mark = '✓' if item['state'] == 'complete' else '☐'
+                    for item in checklist.get("checkItems", []):
+                        status_mark = "✓" if item["state"] == "complete" else "☐"
                         desc_parts.append(f"- [{status_mark}] {item['name']}")
                     desc_parts.append("")
 
             # Add attachments
-            if card.get('attachments'):
+            if card.get("attachments"):
                 desc_parts.append("\n## Attachments\n")
-                for att in card['attachments']:
-                    desc_parts.append(f"- [{att['name']}]({att['url']}) ({att.get('bytes', 0)} bytes)")
+                for att in card["attachments"]:
+                    desc_parts.append(
+                        f"- [{att['name']}]({att['url']}) ({att.get('bytes', 0)} bytes)"
+                    )
                 desc_parts.append("")
 
             # Add comments
-            card_comments = comments_by_card.get(card['id'], [])
+            card_comments = comments_by_card.get(card["id"], [])
             if card_comments:
                 desc_parts.append("\n## Comments\n")
                 for comment in reversed(card_comments):  # Reverse to show oldest first
-                    author = comment.get('memberCreator', {}).get('fullName', 'Unknown')
-                    date = comment.get('date', '')[:10]  # YYYY-MM-DD
-                    text = comment['data']['text']
+                    author = comment.get("memberCreator", {}).get("fullName", "Unknown")
+                    date = comment.get("date", "")[:10]  # YYYY-MM-DD
+                    text = comment["data"]["text"]
 
                     desc_parts.append(f"**{author}** ({date}):")
                     desc_parts.append(f"> {text}")
@@ -452,7 +471,7 @@ class TrelloToBeadsConverter:
             description = "\n".join(desc_parts)
 
             if dry_run:
-                print(f"[DRY RUN] Would create:")
+                print("[DRY RUN] Would create:")
                 print(f"  Title: {card['name']}")
                 print(f"  Status: {status}")
                 print(f"  List: {list_name}")
@@ -461,19 +480,19 @@ class TrelloToBeadsConverter:
             else:
                 try:
                     issue_id = self.beads.create_issue(
-                        title=card['name'],
+                        title=card["name"],
                         description=description,
                         status=status,
                         priority=2,
-                        issue_type='task',
+                        issue_type="task",
                         labels=labels,
-                        external_ref=external_ref
+                        external_ref=external_ref,
                     )
 
                     # Build mapping for second pass
-                    self.trello_to_beads[card['id']] = issue_id
-                    self.card_url_map[card['shortUrl']] = issue_id
-                    self.card_url_map[card['shortLink']] = issue_id
+                    self.trello_to_beads[card["id"]] = issue_id
+                    self.card_url_map[card["shortUrl"]] = issue_id
+                    self.card_url_map[card["shortLink"]] = issue_id
 
                     print(f"✅ Created {issue_id}: {card['name']} (list:{list_name})")
                     created_count += 1
@@ -502,22 +521,22 @@ class TrelloToBeadsConverter:
             print(f"Issues Created: {created_count}/{len(cards)}")
 
             # Count preserved features
-            checklists_count = sum(1 for c in cards if c.get('checklists'))
-            attachments_count = sum(1 for c in cards if c.get('attachments'))
-            labels_count = sum(1 for c in cards if c.get('labels'))
+            checklists_count = sum(1 for c in cards if c.get("checklists"))
+            attachments_count = sum(1 for c in cards if c.get("attachments"))
+            labels_count = sum(1 for c in cards if c.get("labels"))
             comments_count = len(comments_by_card)
             total_comments = sum(len(comments) for comments in comments_by_card.values())
 
-            print(f"\nPreserved Features:")
+            print("\nPreserved Features:")
             print(f"  Checklists: {checklists_count} cards")
             print(f"  Attachments: {attachments_count} cards")
             print(f"  Labels: {labels_count} cards")
             print(f"  Comments: {comments_count} cards ({total_comments} total comments)")
 
-            print(f"\nStatus Distribution:")
+            print("\nStatus Distribution:")
             status_counts = {}
             for card in cards_sorted:
-                list_name = self.list_map.get(card['idList'], 'Unknown')
+                list_name = self.list_map.get(card["idList"], "Unknown")
                 status = self.list_to_status(list_name)
                 status_counts[status] = status_counts.get(status, 0) + 1
 
@@ -525,32 +544,32 @@ class TrelloToBeadsConverter:
                 print(f"  {status}: {count}")
 
             print("\n✅ Conversion complete!")
-            print(f"\nView issues: bd list")
-            print(f"Query by list: bd list --labels 'list:To Do'")
-            print(f"Show issue: bd show <issue-id>")
+            print("\nView issues: bd list")
+            print("Query by list: bd list --labels 'list:To Do'")
+            print("Show issue: bd show <issue-id>")
         print("=" * 60)
 
 
 def main():
     # Show help
-    if '--help' in sys.argv or '-h' in sys.argv:
+    if "--help" in sys.argv or "-h" in sys.argv:
         print(__doc__)
         sys.exit(0)
 
     # Load credentials from environment (optionally from .env file)
-    env_file = os.getenv('TRELLO_ENV_FILE', '.env')
+    env_file = os.getenv("TRELLO_ENV_FILE", ".env")
     if Path(env_file).exists():
         with open(env_file) as f:
             for line in f:
                 line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    key, value = line.split('=', 1)
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
                     if key not in os.environ:  # Don't override existing env vars
                         os.environ[key] = value
 
-    api_key = os.getenv('TRELLO_API_KEY')
-    token = os.getenv('TRELLO_TOKEN')
-    board_id = os.getenv('TRELLO_BOARD_ID')
+    api_key = os.getenv("TRELLO_API_KEY")
+    token = os.getenv("TRELLO_TOKEN")
+    board_id = os.getenv("TRELLO_BOARD_ID")
 
     if not all([api_key, token, board_id]):
         print("❌ Error: Missing required Trello credentials")
@@ -559,18 +578,18 @@ def main():
         print("  TRELLO_TOKEN       - Your Trello API token")
         print("  TRELLO_BOARD_ID    - The board ID to convert")
         print("\nSet them in your environment or create a .env file:")
-        print("  export TRELLO_API_KEY=\"...\"")
-        print("  export TRELLO_TOKEN=\"...\"")
-        print("  export TRELLO_BOARD_ID=\"...\"")
+        print('  export TRELLO_API_KEY="..."')
+        print('  export TRELLO_TOKEN="..."')
+        print('  export TRELLO_BOARD_ID="..."')
         print("\nFor setup instructions, see README.md")
         sys.exit(1)
 
     # Check for flags
-    dry_run = '--dry-run' in sys.argv or '-n' in sys.argv
-    use_snapshot = '--use-snapshot' in sys.argv
+    dry_run = "--dry-run" in sys.argv or "-n" in sys.argv
+    use_snapshot = "--use-snapshot" in sys.argv
 
     # Find beads database (current directory or override)
-    beads_db_path = os.getenv('BEADS_DB_PATH') or str(Path.cwd() / '.beads/beads.db')
+    beads_db_path = os.getenv("BEADS_DB_PATH") or str(Path.cwd() / ".beads/beads.db")
 
     if not Path(beads_db_path).exists():
         print(f"❌ Error: Beads database not found: {beads_db_path}")
@@ -584,7 +603,7 @@ def main():
     print()
 
     # Snapshot path for caching Trello API responses
-    snapshot_path = os.getenv('SNAPSHOT_PATH') or str(Path.cwd() / 'trello_snapshot.json')
+    snapshot_path = os.getenv("SNAPSHOT_PATH") or str(Path.cwd() / "trello_snapshot.json")
 
     # Initialize components
     trello = TrelloReader(api_key, token, board_id)
@@ -595,14 +614,17 @@ def main():
     try:
         converter.convert(
             dry_run=dry_run,
-            snapshot_path=snapshot_path if use_snapshot else snapshot_path  # Always save/use snapshot
+            snapshot_path=snapshot_path
+            if use_snapshot
+            else snapshot_path,  # Always save/use snapshot
         )
     except Exception as e:
         print(f"❌ Conversion failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
