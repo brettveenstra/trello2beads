@@ -19,7 +19,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-MIN_PYTHON_VERSION="3.8"
+MIN_PYTHON_VERSION="3.10"
 VENV_DIR=".venv"
 USE_VENV=true
 CHECK_ONLY=false
@@ -70,7 +70,7 @@ if ! command -v python3 &> /dev/null; then
     echo -e "${RED}✗ FAILED${NC}"
     echo ""
     echo -e "${RED}Python 3 is not installed.${NC}"
-    echo "Please install Python 3.8 or higher:"
+    echo "Please install Python 3.10 or higher:"
     echo "  - Ubuntu/Debian: sudo apt install python3 python3-pip"
     echo "  - macOS: brew install python3"
     echo "  - Windows: Download from https://www.python.org/downloads/"
@@ -81,11 +81,11 @@ PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
 PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
 PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
 
-if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 8 ]); then
+if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 10 ]); then
     echo -e "${RED}✗ FAILED${NC}"
     echo ""
     echo -e "${RED}Python $PYTHON_VERSION is too old.${NC}"
-    echo "trello2beads requires Python 3.8 or higher."
+    echo "trello2beads requires Python 3.10 or higher."
     echo "Current version: Python $PYTHON_VERSION"
     exit 1
 fi

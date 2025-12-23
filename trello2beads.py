@@ -25,7 +25,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, cast
 
 import requests
 
@@ -39,7 +39,7 @@ class TrelloReader:
         self.board_id = board_id
         self.base_url = "https://api.trello.com/1"
 
-    def _request(self, endpoint: str, params: Optional[Dict] = None) -> Any:
+    def _request(self, endpoint: str, params: dict | None = None) -> Any:
         """Make authenticated request to Trello API"""
         url = f"{self.base_url}/{endpoint}"
         auth_params = {"key": self.api_key, "token": self.token}
@@ -50,34 +50,34 @@ class TrelloReader:
         response.raise_for_status()
         return cast(Any, response.json())
 
-    def get_board(self) -> Dict:
+    def get_board(self) -> dict:
         """Get board info"""
-        return cast(Dict, self._request(f"boards/{self.board_id}", {"fields": "name,desc,url"}))
+        return cast(dict, self._request(f"boards/{self.board_id}", {"fields": "name,desc,url"}))
 
-    def get_lists(self) -> List[Dict]:
+    def get_lists(self) -> list[dict]:
         """Get all lists on the board"""
         return cast(
-            List[Dict], self._request(f"boards/{self.board_id}/lists", {"fields": "name,id,pos"})
+            list[dict], self._request(f"boards/{self.board_id}/lists", {"fields": "name,id,pos"})
         )
 
-    def get_cards(self) -> List[Dict]:
+    def get_cards(self) -> list[dict]:
         """Get all cards with full details"""
         cards = self._request(
             f"boards/{self.board_id}/cards",
             {"attachments": "true", "checklists": "all", "fields": "all"},
         )
-        return cast(List[Dict], cards)
+        return cast(list[dict], cards)
 
-    def get_card_comments(self, card_id: str) -> List[Dict]:
+    def get_card_comments(self, card_id: str) -> list[dict]:
         """Get all comments for a card"""
         comments = self._request(f"cards/{card_id}/actions", {"filter": "commentCard"})
-        return cast(List[Dict], comments)
+        return cast(list[dict], comments)
 
 
 class BeadsWriter:
     """Write issues to beads via bd CLI"""
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         """Initialize with optional custom database path"""
         self.db_path = db_path
 
@@ -88,8 +88,8 @@ class BeadsWriter:
         status: str = "open",
         priority: int = 2,
         issue_type: str = "task",
-        labels: Optional[List[str]] = None,
-        external_ref: Optional[str] = None,
+        labels: list[str] | None = None,
+        external_ref: str | None = None,
     ) -> str:
         """Create a beads issue and return its ID"""
         cmd = ["bd"]
@@ -187,7 +187,7 @@ class TrelloToBeadsConverter:
         return "open"
 
     def _resolve_card_references(
-        self, cards: List[Dict], comments_by_card: Dict[str, List[Dict]]
+        self, cards: list[dict], comments_by_card: dict[str, list[dict]]
     ) -> int:
         """
         Second pass: Find Trello card URLs in descriptions/attachments/comments
@@ -260,7 +260,7 @@ class TrelloToBeadsConverter:
             if card.get("attachments"):
                 for att in card["attachments"]:
                     att_url = att.get("url", "")
-                    att_match: Optional[re.Match[str]] = trello_url_pattern.search(att_url)
+                    att_match: re.Match[str] | None = trello_url_pattern.search(att_url)
 
                     if att_match:
                         short_link = att_match.group(1)
@@ -343,11 +343,11 @@ class TrelloToBeadsConverter:
     def __init__(self, trello: TrelloReader, beads: BeadsWriter):
         self.trello = trello
         self.beads = beads
-        self.list_map: Dict[str, str] = {}  # Trello list ID -> name
-        self.trello_to_beads: Dict[str, str] = {}  # Trello card ID -> beads issue ID
-        self.card_url_map: Dict[str, str] = {}  # Trello short URL -> beads issue ID
+        self.list_map: dict[str, str] = {}  # Trello list ID -> name
+        self.trello_to_beads: dict[str, str] = {}  # Trello card ID -> beads issue ID
+        self.card_url_map: dict[str, str] = {}  # Trello short URL -> beads issue ID
 
-    def convert(self, dry_run: bool = False, snapshot_path: Optional[str] = None) -> None:
+    def convert(self, dry_run: bool = False, snapshot_path: str | None = None) -> None:
         """Perform the conversion"""
         print("🔄 Starting Trello → Beads conversion...")
         print()
@@ -536,7 +536,7 @@ class TrelloToBeadsConverter:
             print(f"  Comments: {comments_count} cards ({total_comments} total comments)")
 
             print("\nStatus Distribution:")
-            status_counts: Dict[str, int] = {}
+            status_counts: dict[str, int] = {}
             for card in cards_sorted:
                 list_name = self.list_map.get(card["idList"], "Unknown")
                 status = self.list_to_status(list_name)

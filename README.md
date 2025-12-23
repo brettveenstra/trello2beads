@@ -17,7 +17,7 @@ Migrate your Trello boards to [beads](https://github.com/steveyegge/beads) - a l
 
 ### Prerequisites
 
-1. **Python 3.8+**
+1. **Python 3.10+**
 2. **beads CLI** - Install from [github.com/steveyegge/beads](https://github.com/steveyegge/beads)
 3. **Trello API credentials** - Get from [trello.com/power-ups/admin](https://trello.com/power-ups/admin)
 
