@@ -245,40 +245,46 @@ Status Distribution:
 🎯 Dry run complete. Would create 15 issues
 ```
 
-### Example 2: Complex Board
+### Example 2: Standard Board
 
 **Trello Board**:
-- 75 cards across 6 lists
-- 12 cards with comments (20 total comments)
-- 2 cards with checklists
+- 10 cards across 3 lists (To Do, Doing, Done)
+- Mix of open, in-progress, and completed tasks
+- Standard software development workflow
 
 **Conversion**:
 ```bash
 $ python3 trello2beads.py
 
-✅ Created bizdom-abc: Research Kanban (list:Done)
-✅ Created bizdom-def: Create Custom Object (list:Done)
-...
-✅ Created bizdom-xyz: Handle client questions (list:Doing)
+✅ Created myproject-001: Write README (list:To Do)
+✅ Created myproject-002: Setup CI/CD (list:To Do)
+✅ Created myproject-003: Add tests (list:To Do)
+✅ Created myproject-004: Implement authentication (list:Doing)
+✅ Created myproject-005: Update dependencies (list:Doing)
+✅ Created myproject-006: Initial project setup (list:Done)
+✅ Created myproject-007: Choose tech stack (list:Done)
+✅ Created myproject-008: Design database schema (list:Done)
+✅ Created myproject-009: Write project proposal (list:Done)
+✅ Created myproject-010: Get approval (list:Done)
 
 🔄 Pass 2: Resolving Trello card references...
 ✅ Resolved 0 Trello card references
 
 📊 CONVERSION SUMMARY
-Board: Complex Project Board
-Lists: 6
-Total Cards: 75
-Issues Created: 75/75
+Board: Example Todo Board
+Lists: 3
+Total Cards: 10
+Issues Created: 10/10
 
 Preserved Features:
-  Checklists: 2 cards
+  Checklists: 0 cards
   Attachments: 0 cards
-  Comments: 12 cards (20 total comments)
+  Comments: 0 cards (0 total comments)
 
 Status Distribution:
-  open: 14
-  in_progress: 9
-  closed: 52
+  open: 3
+  in_progress: 2
+  closed: 5
 
 ✅ Conversion complete!
 
