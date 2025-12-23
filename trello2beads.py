@@ -56,7 +56,9 @@ class TrelloReader:
 
     def get_lists(self) -> List[Dict]:
         """Get all lists on the board"""
-        return cast(List[Dict], self._request(f"boards/{self.board_id}/lists", {"fields": "name,id,pos"}))
+        return cast(
+            List[Dict], self._request(f"boards/{self.board_id}/lists", {"fields": "name,id,pos"})
+        )
 
     def get_cards(self) -> List[Dict]:
         """Get all cards with full details"""
