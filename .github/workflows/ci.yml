@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements*.txt') }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Lint with ruff
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Type check with mypy
+        run: mypy trello2beads.py
+
+      - name: Run tests with pytest
+        run: |
+          pytest --cov=. --cov-report=xml --cov-report=term
+
+      - name: Check coverage threshold
+        run: |
+          coverage report --fail-under=80
+
+      - name: Security scan with bandit
+        run: bandit -r . -ll
+
+      - name: Dependency security check
+        run: pip-audit
+
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.11'
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: true
+
+  badges:
+    needs: quality-gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: All quality gates passed
+        run: echo "✅ All quality gates passed!"
