@@ -270,10 +270,25 @@ class TrelloReader:
         )
 
     def get_cards(self) -> list[dict]:
-        """Get all cards with full details (supports pagination for >1000 cards)"""
+        """Get all cards with full relationships (supports pagination for >1000 cards)
+
+        Fetches cards with complete relationship data in a single request:
+        - Attachments (files, links)
+        - Checklists (with completion status)
+        - Members (assigned users)
+        - Custom field items (custom field values)
+        - Stickers (visual decorations)
+        """
         cards = self._paginated_request(
             f"boards/{self.board_id}/cards",
-            {"attachments": "true", "checklists": "all", "fields": "all"},
+            {
+                "attachments": "true",
+                "checklists": "all",
+                "members": "true",
+                "customFieldItems": "true",
+                "stickers": "true",
+                "fields": "all",
+            },
         )
         return cards
 

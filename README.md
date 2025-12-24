@@ -202,6 +202,19 @@ The converter runs in two passes:
 2. Replaces them with beads issue references
 3. Updates issue descriptions
 
+### Enhanced Card Reading
+
+The tool fetches **complete card data with all relationships** in a single API request for maximum efficiency:
+
+- **Attachments**: Files and links attached to cards (with metadata)
+- **Checklists**: All checklist items with completion status
+- **Members**: Users assigned to each card (with full profile data)
+- **Custom Field Items**: All custom field values (text, number, checkbox, date)
+- **Stickers**: Visual decorations applied to cards (with positioning)
+- **All Card Fields**: Complete card metadata (name, description, labels, dates, etc.)
+
+This comprehensive fetch strategy minimizes API calls while ensuring high-fidelity data migration. The tool automatically handles pagination when boards contain more than 1000 cards.
+
 ### Rate Limiting
 
 The tool implements **token bucket rate limiting** to respect Trello's API limits:
@@ -337,16 +350,18 @@ The original list name is preserved as a label (`list:To Do`) for filtering.
 - Trello labels
 - Card references (URLs converted to beads issue IDs)
 - List membership (as labels)
+- **Card members** (assigned users) - fetched with full relationships
+- **Custom field items** (custom field values) - all field types supported
+- **Stickers** (visual decorations) - preserved with positioning
 
 ⏳ **Planned for V2/V3**:
-- Card assignees (members)
 - Due dates
 - Priority mapping (from labels or card attributes)
 - Type mapping (bug/feature/task)
+- Custom field definitions mapping
 
 ❌ **Not Supported**:
 - Card cover images
-- Custom fields
 - Board backgrounds
 - Power-Ups
 - Real-time sync (one-time migration only)
