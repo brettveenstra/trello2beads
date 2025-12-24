@@ -12,7 +12,14 @@ import requests
 # Add parent directory to path to import trello2beads module
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from trello2beads import TrelloReader
+from trello2beads import (
+    TrelloAPIError,
+    TrelloAuthenticationError,
+    TrelloNotFoundError,
+    TrelloRateLimitError,
+    TrelloReader,
+    TrelloServerError,
+)
 
 
 class TestRetryLogic:
@@ -126,13 +133,14 @@ class TestRetryLogic:
 
         response_401 = MagicMock()
         response_401.status_code = 401
+        response_401.text = "Unauthorized"
         response_401.raise_for_status.side_effect = requests.HTTPError(response=response_401)
 
         with (
             patch.object(reader.rate_limiter, "acquire", return_value=True),
             patch("requests.get", return_value=response_401) as mock_get,
         ):
-            with pytest.raises(requests.HTTPError):
+            with pytest.raises(TrelloAuthenticationError):
                 reader._request("boards/TEST1234")
 
             # Should NOT retry - only one attempt
@@ -144,13 +152,14 @@ class TestRetryLogic:
 
         response_404 = MagicMock()
         response_404.status_code = 404
+        response_404.text = "Not Found"
         response_404.raise_for_status.side_effect = requests.HTTPError(response=response_404)
 
         with (
             patch.object(reader.rate_limiter, "acquire", return_value=True),
             patch("requests.get", return_value=response_404) as mock_get,
         ):
-            with pytest.raises(requests.HTTPError):
+            with pytest.raises(TrelloNotFoundError):
                 reader._request("boards/TEST1234")
 
             # Should NOT retry - only one attempt
@@ -162,6 +171,7 @@ class TestRetryLogic:
 
         response_503 = MagicMock()
         response_503.status_code = 503
+        response_503.text = "Service Unavailable"
         response_503.raise_for_status.side_effect = requests.HTTPError(response=response_503)
 
         with (
@@ -169,7 +179,7 @@ class TestRetryLogic:
             patch("requests.get", return_value=response_503) as mock_get,
             patch("time.sleep") as mock_sleep,
         ):
-            with pytest.raises(requests.HTTPError):
+            with pytest.raises(TrelloServerError):
                 reader._request("boards/TEST1234")
 
             # Should have tried 3 times (max retries)
@@ -184,6 +194,7 @@ class TestRetryLogic:
 
         response_429 = MagicMock()
         response_429.status_code = 429
+        response_429.text = "Too Many Requests"
         response_429.raise_for_status.side_effect = requests.HTTPError(response=response_429)
 
         with (
@@ -191,7 +202,7 @@ class TestRetryLogic:
             patch("requests.get", return_value=response_429),
             patch("time.sleep") as mock_sleep,
         ):
-            with pytest.raises(requests.HTTPError):
+            with pytest.raises(TrelloRateLimitError):
                 reader._request("boards/TEST1234")
 
             # Check exponential backoff delays: 1s, 2s
@@ -257,7 +268,7 @@ class TestRetryLogic:
         ):
             mock_get.side_effect = requests.Timeout("Persistent timeout")
 
-            with pytest.raises(requests.Timeout):
+            with pytest.raises(TrelloAPIError):
                 reader._request("boards/TEST1234")
 
             # Should have tried 3 times

@@ -482,6 +482,37 @@ bd list --labels 'list:Backlog' | wc -l
 
 ## Troubleshooting
 
+### Error Handling
+
+The tool provides helpful error messages for common issues:
+
+**Authentication Errors (401/403)**:
+- `TrelloAuthenticationError`: Invalid API credentials or insufficient permissions
+- **Solution**: Verify your `TRELLO_API_KEY` and `TRELLO_TOKEN` at https://trello.com/power-ups/admin
+- Check that your token has permission to access the board
+
+**Resource Not Found (404)**:
+- `TrelloNotFoundError`: Board or resource doesn't exist
+- **Solution**: Verify your board ID is correct and the board exists
+- Ensure the board hasn't been deleted or archived
+
+**Rate Limiting (429)**:
+- `TrelloRateLimitError`: Exceeded Trello's API rate limit (100 req/10sec)
+- **Solution**: Wait a few minutes and try again
+- The tool automatically retries with exponential backoff (1s, 2s, 4s)
+
+**Server Errors (500/502/503/504)**:
+- `TrelloServerError`: Trello's servers are experiencing issues
+- **Solution**: Wait and try again later - server errors are automatically retried
+- Check Trello's status page for ongoing outages
+
+**Network Errors**:
+- `TrelloAPIError`: Timeout or connection issues
+- **Solution**: Check your internet connection
+- Network errors are automatically retried up to 3 times
+
+All errors include detailed messages explaining the issue and suggesting next steps.
+
 ### "Missing required Trello credentials"
 
 Make sure you've set all three environment variables:

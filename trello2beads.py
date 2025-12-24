@@ -35,6 +35,41 @@ from typing import Any, cast
 import requests
 
 
+class TrelloAPIError(Exception):
+    """Base exception for Trello API errors"""
+
+    def __init__(
+        self, message: str, status_code: int | None = None, response_text: str | None = None
+    ):
+        self.status_code = status_code
+        self.response_text = response_text
+        super().__init__(message)
+
+
+class TrelloAuthenticationError(TrelloAPIError):
+    """Raised when API credentials are invalid or expired (401/403)"""
+
+    pass
+
+
+class TrelloNotFoundError(TrelloAPIError):
+    """Raised when a board, card, or resource is not found (404)"""
+
+    pass
+
+
+class TrelloRateLimitError(TrelloAPIError):
+    """Raised when rate limit is exceeded (429) after retries"""
+
+    pass
+
+
+class TrelloServerError(TrelloAPIError):
+    """Raised when Trello's servers return an error (500/502/503/504)"""
+
+    pass
+
+
 class RateLimiter:
     """Token bucket rate limiter for API requests
 
@@ -189,10 +224,38 @@ class TrelloReader:
             except requests.HTTPError as e:
                 last_exception = e
                 status_code = e.response.status_code if e.response else 0
+                response_text = e.response.text if e.response else ""
 
-                # Only retry on transient failures
+                # Handle non-retryable errors with helpful messages
                 if status_code not in retry_statuses:
-                    raise  # Non-retryable error (e.g., 401, 404)
+                    if status_code == 401:
+                        raise TrelloAuthenticationError(
+                            "Invalid API credentials. Check your TRELLO_API_KEY and TRELLO_TOKEN.\n"
+                            "Get credentials at: https://trello.com/power-ups/admin",
+                            status_code=status_code,
+                            response_text=response_text,
+                        ) from e
+                    elif status_code == 403:
+                        raise TrelloAuthenticationError(
+                            f"Access forbidden to resource: {endpoint}\n"
+                            "Your API token may not have permission to access this board.",
+                            status_code=status_code,
+                            response_text=response_text,
+                        ) from e
+                    elif status_code == 404:
+                        raise TrelloNotFoundError(
+                            f"Resource not found: {endpoint}\n"
+                            "Check that your board ID is correct and the board exists.",
+                            status_code=status_code,
+                            response_text=response_text,
+                        ) from e
+                    else:
+                        # Other non-retryable HTTP errors
+                        raise TrelloAPIError(
+                            f"HTTP {status_code} error for {endpoint}: {response_text[:200]}",
+                            status_code=status_code,
+                            response_text=response_text,
+                        ) from e
 
                 # Don't delay after last attempt
                 if attempt < max_retries - 1:
@@ -206,11 +269,43 @@ class TrelloReader:
                     delay = base_delay * (2**attempt)
                     time.sleep(delay)
                 else:
-                    raise
+                    # Network error after all retries
+                    raise TrelloAPIError(
+                        f"Network error after {max_retries} attempts: {str(e)}\n"
+                        "Check your internet connection and try again.",
+                        status_code=None,
+                        response_text=None,
+                    ) from e
 
-        # All retries exhausted
+        # All retries exhausted for transient HTTP errors
+        if last_exception and isinstance(last_exception, requests.HTTPError):
+            status_code = last_exception.response.status_code if last_exception.response else 0
+            response_text = last_exception.response.text if last_exception.response else ""
+
+            if status_code == 429:
+                raise TrelloRateLimitError(
+                    f"Rate limit exceeded after {max_retries} retry attempts.\n"
+                    "Trello's API rate limit: 100 requests per 10 seconds.\n"
+                    "Wait a few minutes and try again.",
+                    status_code=status_code,
+                    response_text=response_text,
+                ) from last_exception
+            elif status_code in {500, 502, 503, 504}:
+                raise TrelloServerError(
+                    f"Trello server error (HTTP {status_code}) persisted after {max_retries} retries.\n"
+                    "Trello's servers may be experiencing issues. Try again later.",
+                    status_code=status_code,
+                    response_text=response_text,
+                ) from last_exception
+
+        # Fallback for unexpected cases
         if last_exception:
-            raise last_exception
+            raise TrelloAPIError(
+                f"Request failed after {max_retries} retries: {str(last_exception)}",
+                status_code=None,
+                response_text=None,
+            ) from last_exception
+
         raise RuntimeError("Request failed after retries")
 
     def _paginated_request(self, endpoint: str, params: dict | None = None) -> list[dict]:
