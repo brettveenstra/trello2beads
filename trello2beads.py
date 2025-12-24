@@ -164,7 +164,7 @@ class TrelloReader:
         raise ValueError(f"Could not extract board ID from URL: {url}")
 
     def _request(self, endpoint: str, params: dict | None = None) -> Any:
-        """Make authenticated request to Trello API with rate limiting"""
+        """Make authenticated request to Trello API with rate limiting and retry logic"""
         # Acquire rate limiter token before making request
         if not self.rate_limiter.acquire(timeout=30.0):
             raise RuntimeError("Rate limiter timeout - too many requests queued")
@@ -174,9 +174,44 @@ class TrelloReader:
         if params:
             auth_params.update(params)
 
-        response = requests.get(url, params=auth_params, timeout=30)
-        response.raise_for_status()
-        return cast(Any, response.json())
+        # Retry logic with exponential backoff for transient failures
+        max_retries = 3
+        base_delay = 1.0
+        retry_statuses = {429, 500, 502, 503, 504}  # Transient errors
+
+        last_exception: requests.RequestException | None = None
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, params=auth_params, timeout=30)
+                response.raise_for_status()
+                return cast(Any, response.json())
+
+            except requests.HTTPError as e:
+                last_exception = e
+                status_code = e.response.status_code if e.response else 0
+
+                # Only retry on transient failures
+                if status_code not in retry_statuses:
+                    raise  # Non-retryable error (e.g., 401, 404)
+
+                # Don't delay after last attempt
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2**attempt)  # Exponential backoff: 1s, 2s, 4s
+                    time.sleep(delay)
+
+            except requests.RequestException as e:
+                # Network errors, timeouts, etc.
+                last_exception = e
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2**attempt)
+                    time.sleep(delay)
+                else:
+                    raise
+
+        # All retries exhausted
+        if last_exception:
+            raise last_exception
+        raise RuntimeError("Request failed after retries")
 
     def _paginated_request(self, endpoint: str, params: dict | None = None) -> list[dict]:
         """Make paginated requests to handle Trello's 1000-item limit

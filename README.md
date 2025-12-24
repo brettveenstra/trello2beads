@@ -257,6 +257,36 @@ The tool supports **multiple ways to specify your board**:
 
 This makes it easy to migrate boards - just copy the URL from your browser!
 
+### Retry Logic & Error Handling
+
+The tool implements **intelligent retry logic with exponential backoff** for resilient API calls:
+
+- **Automatic Retries**: Automatically retries failed requests up to 3 times
+- **Exponential Backoff**: Progressive delays between retries (1s, 2s, 4s)
+- **Smart Error Detection**: Only retries transient errors, fails fast on permanent errors
+- **Network Resilience**: Handles timeouts, connection errors, and temporary outages
+
+**Retry Strategy**:
+
+| Error Type | Status Codes | Retry? | Reason |
+|-----------|-------------|--------|--------|
+| Rate Limit | 429 | ✅ Yes | Temporary - server asks to slow down |
+| Server Error | 500, 502, 503, 504 | ✅ Yes | Transient - server may recover |
+| Auth Error | 401, 403 | ❌ No | Permanent - invalid credentials |
+| Not Found | 404 | ❌ No | Permanent - resource doesn't exist |
+| Network Timeout | - | ✅ Yes | Transient - network may recover |
+| Connection Error | - | ✅ Yes | Transient - connection may recover |
+
+**How it works**:
+1. Makes initial API request
+2. If request fails with transient error (429, 500, 503, etc.), waits 1 second and retries
+3. If second attempt fails, waits 2 seconds and retries
+4. If third attempt fails, waits 4 seconds and retries (last attempt)
+5. If all retries exhausted, raises the original exception
+6. For permanent errors (401, 404), fails immediately without retrying
+
+This ensures **reliable data fetching** even when Trello's API experiences temporary issues or rate limiting, while avoiding wasted retries on permanent errors.
+
 ### Mapping Strategy
 
 #### Lists → Status
