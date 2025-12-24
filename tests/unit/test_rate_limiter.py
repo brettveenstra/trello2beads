@@ -6,8 +6,6 @@ import sys
 import time
 from pathlib import Path
 
-import pytest
-
 # Add parent directory to path to import trello2beads module
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -43,7 +41,7 @@ class TestRateLimiter:
         # Consume all 5 burst tokens
         for i in range(5):
             result = limiter.acquire(timeout=0.1)
-            assert result is True, f"Failed to acquire token {i+1}"
+            assert result is True, f"Failed to acquire token {i + 1}"
 
         status = limiter.get_status()
         assert status["available_tokens"] < 1.0  # All consumed
@@ -58,7 +56,7 @@ class TestRateLimiter:
 
         # Next acquire should block for a short time
         start_time = time.time()
-        result = limiter.acquire(timeout=0.2)
+        limiter.acquire(timeout=0.2)
         elapsed = time.time() - start_time
 
         # Should have blocked for some time (token replenishment)
@@ -112,7 +110,7 @@ class TestRateLimiter:
         # Try to acquire burst_allowance tokens - should succeed
         for i in range(3):
             result = limiter.acquire(timeout=0.1)
-            assert result is True, f"Token {i+1} should be available"
+            assert result is True, f"Token {i + 1} should be available"
 
         # Should now be depleted
         status = limiter.get_status()
@@ -150,7 +148,7 @@ class TestRateLimiter:
         # Should be able to make 10 requests immediately (burst)
         for i in range(10):
             result = limiter.acquire(timeout=0.1)
-            assert result is True, f"Failed burst request {i+1}"
+            assert result is True, f"Failed burst request {i + 1}"
 
         # 11th request should block briefly (wait for replenishment)
         start_time = time.time()
