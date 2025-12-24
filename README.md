@@ -10,6 +10,7 @@ Migrate your Trello boards to [beads](https://github.com/steveyegge/beads) - a l
 - **Smart Status Mapping**: Automatically maps Trello lists to beads status (open/in_progress/closed)
 - **URL Resolution**: Converts Trello card references to beads issue references
 - **Read-Only**: Safe, non-destructive Trello access (never modifies your Trello board)
+- **Rate Limiting**: Built-in rate limiting respects Trello's API limits (10 req/sec with burst support)
 - **Offline Support**: Snapshot caching for faster re-runs and offline testing
 - **Dry-Run Mode**: Preview conversion before creating issues
 
@@ -188,6 +189,21 @@ The converter runs in two passes:
 1. Finds Trello card URLs in descriptions, comments, and attachments
 2. Replaces them with beads issue references
 3. Updates issue descriptions
+
+### Rate Limiting
+
+The tool implements **token bucket rate limiting** to respect Trello's API limits:
+
+- **Limit**: 10 requests per second (sustained)
+- **Burst**: Up to 10 requests can be made immediately
+- **Algorithm**: Token bucket - tokens replenish at 10/sec, burst allows short spikes
+- **Behavior**: Requests automatically wait if limit is reached (no manual throttling needed)
+
+**Trello's official limits**:
+- 100 requests per 10 seconds per token
+- 300 requests per 10 seconds per API key
+
+The rate limiter is conservative (10 req/sec vs Trello's 30 req/sec key limit) to ensure reliability. For boards with hundreds of cards and comments, this prevents hitting API limits while keeping conversions fast.
 
 ### Mapping Strategy
 

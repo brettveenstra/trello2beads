@@ -27,14 +27,86 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any, cast
 
 import requests
 
 
+class RateLimiter:
+    """Token bucket rate limiter for API requests
+
+    Implements a token bucket algorithm to ensure API requests respect rate limits.
+    Tokens are replenished at a constant rate and consumed for each request.
+    """
+
+    def __init__(self, requests_per_second: float, burst_allowance: int = 5):
+        """
+        Initialize rate limiter
+
+        Args:
+            requests_per_second: Sustained rate limit (tokens added per second)
+            burst_allowance: Maximum tokens in bucket (allows short bursts)
+        """
+        self.rate = requests_per_second
+        self.burst_allowance = burst_allowance
+        self.tokens = float(burst_allowance)
+        self.last_update = time.time()
+        self._lock = threading.Lock()
+
+    def acquire(self, timeout: float = 5.0) -> bool:
+        """
+        Acquire permission to make a request
+
+        Blocks until a token is available or timeout is reached.
+
+        Args:
+            timeout: Maximum time to wait for permission (seconds)
+
+        Returns:
+            True if permission granted, False if timeout
+        """
+        deadline = time.time() + timeout
+
+        while time.time() < deadline:
+            with self._lock:
+                now = time.time()
+                # Add tokens based on time elapsed
+                time_passed = now - self.last_update
+                self.tokens = min(self.burst_allowance, self.tokens + time_passed * self.rate)
+                self.last_update = now
+
+                if self.tokens >= 1.0:
+                    self.tokens -= 1.0
+                    return True
+
+            # Wait a short time before trying again
+            time.sleep(0.01)
+
+        return False  # Timeout
+
+    def get_status(self) -> dict[str, Any]:
+        """Get current rate limiter status for debugging"""
+        with self._lock:
+            return {
+                "available_tokens": self.tokens,
+                "max_tokens": self.burst_allowance,
+                "rate_per_second": self.rate,
+                "utilization_percent": (1 - self.tokens / self.burst_allowance) * 100,
+            }
+
+
 class TrelloReader:
-    """Read data from Trello API"""
+    """Read data from Trello API with rate limiting
+
+    Trello API rate limits (per token):
+    - 100 requests per 10 seconds = 10 req/sec sustained
+    - 300 requests per 10 seconds per API key = 30 req/sec
+
+    We use 10 req/sec with burst allowance of 10 for conservative usage.
+    """
 
     def __init__(self, api_key: str, token: str, board_id: str):
         self.api_key = api_key
@@ -42,8 +114,16 @@ class TrelloReader:
         self.board_id = board_id
         self.base_url = "https://api.trello.com/1"
 
+        # Rate limiter: 10 requests/sec, burst up to 10
+        # Conservative limit to respect Trello's 100 req/10sec token limit
+        self.rate_limiter = RateLimiter(requests_per_second=10.0, burst_allowance=10)
+
     def _request(self, endpoint: str, params: dict | None = None) -> Any:
-        """Make authenticated request to Trello API"""
+        """Make authenticated request to Trello API with rate limiting"""
+        # Acquire rate limiter token before making request
+        if not self.rate_limiter.acquire(timeout=30.0):
+            raise RuntimeError("Rate limiter timeout - too many requests queued")
+
         url = f"{self.base_url}/{endpoint}"
         auth_params = {"key": self.api_key, "token": self.token}
         if params:
