@@ -133,6 +133,52 @@ class TrelloReader:
         response.raise_for_status()
         return cast(Any, response.json())
 
+    def _paginated_request(self, endpoint: str, params: dict | None = None) -> list[dict]:
+        """Make paginated requests to handle Trello's 1000-item limit
+
+        Trello API limits responses to 1000 items. This method automatically
+        paginates using the 'before' parameter to fetch all results.
+
+        Args:
+            endpoint: API endpoint to request
+            params: Query parameters (will add limit=1000 and before as needed)
+
+        Returns:
+            Complete list of all items across all pages
+        """
+        all_items: list[dict] = []
+        request_params = params.copy() if params else {}
+        request_params["limit"] = 1000  # Maximum allowed by Trello
+
+        while True:
+            # Fetch one page
+            page_items = self._request(endpoint, request_params)
+
+            if not isinstance(page_items, list):
+                # Not a list response, return as-is
+                return cast(list[dict], page_items)
+
+            if not page_items:
+                # Empty page means we're done
+                break
+
+            all_items.extend(page_items)
+
+            # If we got less than 1000 items, we've reached the end
+            if len(page_items) < 1000:
+                break
+
+            # Use the ID of the last item as the 'before' parameter for next page
+            # Trello accepts IDs directly (converts to timestamp internally)
+            last_item_id = page_items[-1].get("id")
+            if not last_item_id:
+                # No ID field, can't paginate further
+                break
+
+            request_params["before"] = last_item_id
+
+        return all_items
+
     def get_board(self) -> dict:
         """Get board info"""
         return cast(dict, self._request(f"boards/{self.board_id}", {"fields": "name,desc,url"}))
@@ -144,17 +190,17 @@ class TrelloReader:
         )
 
     def get_cards(self) -> list[dict]:
-        """Get all cards with full details"""
-        cards = self._request(
+        """Get all cards with full details (supports pagination for >1000 cards)"""
+        cards = self._paginated_request(
             f"boards/{self.board_id}/cards",
             {"attachments": "true", "checklists": "all", "fields": "all"},
         )
-        return cast(list[dict], cards)
+        return cards
 
     def get_card_comments(self, card_id: str) -> list[dict]:
-        """Get all comments for a card"""
-        comments = self._request(f"cards/{card_id}/actions", {"filter": "commentCard"})
-        return cast(list[dict], comments)
+        """Get all comments for a card (supports pagination for >1000 comments)"""
+        comments = self._paginated_request(f"cards/{card_id}/actions", {"filter": "commentCard"})
+        return comments
 
 
 class BeadsWriter:

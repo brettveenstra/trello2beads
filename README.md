@@ -11,6 +11,7 @@ Migrate your Trello boards to [beads](https://github.com/steveyegge/beads) - a l
 - **URL Resolution**: Converts Trello card references to beads issue references
 - **Read-Only**: Safe, non-destructive Trello access (never modifies your Trello board)
 - **Rate Limiting**: Built-in rate limiting respects Trello's API limits (10 req/sec with burst support)
+- **Pagination**: Automatic pagination handles boards with >1000 cards or comments
 - **Offline Support**: Snapshot caching for faster re-runs and offline testing
 - **Dry-Run Mode**: Preview conversion before creating issues
 
@@ -204,6 +205,25 @@ The tool implements **token bucket rate limiting** to respect Trello's API limit
 - 300 requests per 10 seconds per API key
 
 The rate limiter is conservative (10 req/sec vs Trello's 30 req/sec key limit) to ensure reliability. For boards with hundreds of cards and comments, this prevents hitting API limits while keeping conversions fast.
+
+### Pagination Support
+
+The tool automatically handles **large boards with more than 1000 cards**:
+
+- **Trello's Limit**: API responses are capped at 1000 items per request
+- **Automatic Pagination**: The tool detects when more data exists and makes additional requests
+- **Algorithm**: Uses Trello's `before` parameter with the last item ID to fetch next page
+- **Transparent**: No configuration needed - works automatically for any board size
+- **Applies to**: Card lists and comment threads (both can exceed 1000 items)
+
+**How it works**:
+1. Fetches first 1000 items (cards or comments)
+2. If result contains exactly 1000 items, fetches the next page
+3. Uses the ID of the last item as the `before` parameter
+4. Continues until all items are retrieved or a page has <1000 items
+5. Combines all pages into a single list
+
+This ensures **complete data retrieval** for large boards without hitting Trello's pagination limits.
 
 ### Mapping Strategy
 
