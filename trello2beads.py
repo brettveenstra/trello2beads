@@ -24,6 +24,7 @@ For full documentation, see README.md
 """
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -33,6 +34,9 @@ from pathlib import Path
 from typing import Any, cast
 
 import requests
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
 class TrelloAPIError(Exception):
@@ -66,6 +70,42 @@ class TrelloRateLimitError(TrelloAPIError):
 
 class TrelloServerError(TrelloAPIError):
     """Raised when Trello's servers return an error (500/502/503/504)"""
+
+    pass
+
+
+class BeadsWriterError(Exception):
+    """Base exception for BeadsWriter errors"""
+
+    def __init__(
+        self,
+        message: str,
+        command: list[str] | None = None,
+        stdout: str | None = None,
+        stderr: str | None = None,
+        returncode: int | None = None,
+    ):
+        self.command = command
+        self.stdout = stdout
+        self.stderr = stderr
+        self.returncode = returncode
+        super().__init__(message)
+
+
+class BeadsCommandError(BeadsWriterError):
+    """Raised when bd CLI is not found or not executable"""
+
+    pass
+
+
+class BeadsIssueCreationError(BeadsWriterError):
+    """Raised when issue creation fails"""
+
+    pass
+
+
+class BeadsUpdateError(BeadsWriterError):
+    """Raised when issue update fails"""
 
     pass
 
@@ -447,8 +487,53 @@ class BeadsWriter:
     """Write issues to beads via bd CLI"""
 
     def __init__(self, db_path: str | None = None):
-        """Initialize with optional custom database path"""
+        """Initialize with optional custom database path
+
+        Args:
+            db_path: Path to beads database file (optional)
+
+        Raises:
+            BeadsCommandError: If bd CLI is not available
+        """
         self.db_path = db_path
+        self._check_bd_available()
+        logger.info("BeadsWriter initialized%s", f" with db_path={db_path}" if db_path else "")
+
+    def _check_bd_available(self) -> None:
+        """Verify that bd CLI is available and executable
+
+        Raises:
+            BeadsCommandError: If bd CLI is not found or not executable
+        """
+        try:
+            result = subprocess.run(
+                ["bd", "--help"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode != 0:
+                raise BeadsCommandError(
+                    "bd CLI is not working properly. "
+                    "Ensure beads is installed and in your PATH.\n"
+                    "Install: https://github.com/niutech/beads",
+                    command=["bd", "--help"],
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    returncode=result.returncode,
+                )
+            logger.debug("bd CLI pre-flight check passed")
+        except FileNotFoundError as e:
+            raise BeadsCommandError(
+                "bd CLI not found. Ensure beads is installed and in your PATH.\n"
+                "Install: https://github.com/niutech/beads",
+                command=["bd", "--help"],
+            ) from e
+        except subprocess.TimeoutExpired as e:
+            raise BeadsCommandError(
+                "bd CLI timed out. There may be an issue with your beads installation.",
+                command=["bd", "--help"],
+            ) from e
 
     def create_issue(
         self,
@@ -460,7 +545,23 @@ class BeadsWriter:
         labels: list[str] | None = None,
         external_ref: str | None = None,
     ) -> str:
-        """Create a beads issue and return its ID"""
+        """Create a beads issue and return its ID
+
+        Args:
+            title: Issue title
+            description: Issue description (optional)
+            status: Issue status (default: "open")
+            priority: Issue priority 0-4 (default: 2)
+            issue_type: Issue type (default: "task")
+            labels: List of labels (optional)
+            external_ref: External reference ID (optional)
+
+        Returns:
+            Created issue ID
+
+        Raises:
+            BeadsIssueCreationError: If issue creation fails
+        """
         cmd = ["bd"]
 
         # Add --db flag if custom database specified
@@ -489,10 +590,42 @@ class BeadsWriter:
         if external_ref:
             cmd.extend(["--external-ref", external_ref])
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        logger.info("Creating issue: %s (type=%s, priority=%d)", title, issue_type, priority)
+        logger.debug("Command: %s", " ".join(cmd))
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired as e:
+            raise BeadsIssueCreationError(
+                f"Issue creation timed out after 30 seconds.\n"
+                f"Title: {title}\n"
+                f"Command: {' '.join(cmd)}",
+                command=cmd,
+            ) from e
+        except Exception as e:
+            raise BeadsIssueCreationError(
+                f"Unexpected error creating issue.\nTitle: {title}\nError: {e}",
+                command=cmd,
+            ) from e
 
         if result.returncode != 0:
-            raise RuntimeError(f"Failed to create issue: {result.stderr}")
+            error_msg = (
+                f"Failed to create issue.\n"
+                f"Title: {title}\n"
+                f"Command: {' '.join(cmd)}\n"
+                f"Exit code: {result.returncode}\n"
+                f"Error output: {result.stderr.strip() if result.stderr else '(none)'}\n"
+                f"\nSuggestion: Check that your beads database is initialized "
+                f"(run 'bd init') and permissions are correct."
+            )
+            logger.error("Issue creation failed: %s", error_msg)
+            raise BeadsIssueCreationError(
+                error_msg,
+                command=cmd,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                returncode=result.returncode,
+            )
 
         # Parse issue ID from output (format: "✓ Created issue: trello2beads-xyz")
         issue_id = None
@@ -502,7 +635,23 @@ class BeadsWriter:
                 break
 
         if not issue_id:
-            raise RuntimeError(f"Could not parse issue ID from output: {result.stdout}")
+            error_msg = (
+                f"Could not parse issue ID from bd output.\n"
+                f"Title: {title}\n"
+                f"Output: {result.stdout}\n"
+                f"\nSuggestion: This may indicate a bd CLI version incompatibility. "
+                f"Update beads to the latest version."
+            )
+            logger.error("Issue ID parsing failed: %s", error_msg)
+            raise BeadsIssueCreationError(
+                error_msg,
+                command=cmd,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                returncode=result.returncode,
+            )
+
+        logger.info("Created issue: %s", issue_id)
 
         # Update status if not 'open' (bd create defaults to open)
         if status != "open":
@@ -511,7 +660,15 @@ class BeadsWriter:
         return issue_id
 
     def update_status(self, issue_id: str, status: str) -> None:
-        """Update issue status"""
+        """Update issue status
+
+        Args:
+            issue_id: Issue ID to update
+            status: New status value
+
+        Raises:
+            BeadsUpdateError: If status update fails
+        """
         cmd = ["bd"]
 
         if self.db_path:
@@ -519,10 +676,49 @@ class BeadsWriter:
 
         cmd.extend(["update", issue_id, "--status", status])
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        logger.info("Updating %s status to: %s", issue_id, status)
+        logger.debug("Command: %s", " ".join(cmd))
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired as e:
+            raise BeadsUpdateError(
+                f"Status update timed out after 30 seconds.\n"
+                f"Issue: {issue_id}\n"
+                f"Status: {status}\n"
+                f"Command: {' '.join(cmd)}",
+                command=cmd,
+            ) from e
+        except Exception as e:
+            raise BeadsUpdateError(
+                f"Unexpected error updating status.\n"
+                f"Issue: {issue_id}\n"
+                f"Status: {status}\n"
+                f"Error: {e}",
+                command=cmd,
+            ) from e
 
         if result.returncode != 0:
-            raise RuntimeError(f"Failed to update status: {result.stderr}")
+            error_msg = (
+                f"Failed to update issue status.\n"
+                f"Issue: {issue_id}\n"
+                f"Status: {status}\n"
+                f"Command: {' '.join(cmd)}\n"
+                f"Exit code: {result.returncode}\n"
+                f"Error output: {result.stderr.strip() if result.stderr else '(none)'}\n"
+                f"\nSuggestion: Verify the issue ID exists and the status value is valid "
+                f"(open, in_progress, blocked, deferred, closed)."
+            )
+            logger.error("Status update failed: %s", error_msg)
+            raise BeadsUpdateError(
+                error_msg,
+                command=cmd,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                returncode=result.returncode,
+            )
+
+        logger.debug("Status update successful")
 
 
 class TrelloToBeadsConverter:
