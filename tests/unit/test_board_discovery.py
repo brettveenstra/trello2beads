@@ -124,10 +124,16 @@ class TestTrelloReaderInit:
         # board_url takes precedence
         assert reader.board_id == "NEW456"
 
-    def test_init_without_board_identifier_raises_error(self):
-        """Should raise ValueError when neither board_id nor board_url provided"""
-        with pytest.raises(ValueError, match="Either board_id or board_url must be provided"):
-            TrelloReader(api_key="test_key", token="test_token")
+    def test_init_without_board_identifier_succeeds(self):
+        """Should succeed without board_id (for list_boards use case)"""
+        reader = TrelloReader(api_key="test_key", token="test_token")
+
+        # Should initialize successfully with board_id=None
+        assert reader.board_id is None
+
+        # But board-specific methods should raise an error
+        with pytest.raises(ValueError, match="board_id is required"):
+            reader.get_board()
 
     def test_init_with_invalid_board_url_raises_error(self):
         """Should raise ValueError when board_url is invalid"""

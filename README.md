@@ -46,12 +46,34 @@ Get your Trello API credentials:
 
 Find your board (choose one option):
 
-**Option 1: Use Board URL (easiest)**
+**Option 1: Discover Your Boards (if unsure)**
+```python
+from trello2beads import TrelloReader
+
+# Initialize without board_id to list all your boards
+reader = TrelloReader(
+    api_key="your-api-key-here",
+    token="your-token-here"
+)
+
+# List all your open boards
+boards = reader.list_boards()
+for board in boards:
+    print(f"{board['name']}: {board['url']}")
+
+# Or list closed/archived boards
+archived = reader.list_boards(filter_status="closed")
+
+# Or list all boards (open + closed)
+all_boards = reader.list_boards(filter_status="all")
+```
+
+**Option 2: Use Board URL (easiest)**
 - Open your Trello board in a browser
 - Copy the full URL from the address bar
 - Example: `https://trello.com/b/ABC123/my-board-name`
 
-**Option 2: Use Board ID**
+**Option 3: Use Board ID**
 - Open your Trello board in a browser
 - Look at the URL: `https://trello.com/b/ABC123/board-name`
 - The board ID is the 8-character code: `ABC123`

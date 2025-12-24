@@ -155,12 +155,14 @@ class TrelloReader:
         self.rate_limiter = RateLimiter(requests_per_second=10.0, burst_allowance=10)
 
         # Board ID can be provided directly or extracted from URL
+        # Note: board_id is optional - only required for board-specific operations
+        self.board_id: str | None
         if board_url:
             self.board_id = self.parse_board_url(board_url)
         elif board_id:
             self.board_id = board_id
         else:
-            raise ValueError("Either board_id or board_url must be provided")
+            self.board_id = None  # Will be required for board-specific methods
 
     @staticmethod
     def parse_board_url(url: str) -> str:
@@ -356,10 +358,53 @@ class TrelloReader:
 
     def get_board(self) -> dict:
         """Get board info"""
+        if not self.board_id:
+            raise ValueError(
+                "board_id is required for this operation. "
+                "Initialize TrelloReader with board_id or board_url parameter."
+            )
         return cast(dict, self._request(f"boards/{self.board_id}", {"fields": "name,desc,url"}))
+
+    def list_boards(self, filter_status: str = "open") -> list[dict]:
+        """List all boards accessible to the authenticated user
+
+        Useful for discovering board IDs and URLs when you're not sure which
+        board to migrate.
+
+        Args:
+            filter_status: Filter boards by status. Options:
+                - "open" (default): Only open (active) boards
+                - "closed": Only closed (archived) boards
+                - "all": Both open and closed boards
+
+        Returns:
+            List of board dictionaries with id, name, url, and closed status
+
+        Example:
+            >>> reader = TrelloReader(api_key="...", token="...")
+            >>> boards = reader.list_boards()
+            >>> for board in boards:
+            ...     print(f"{board['name']}: {board['url']}")
+        """
+        valid_filters = {"open", "closed", "all"}
+        if filter_status not in valid_filters:
+            raise ValueError(
+                f"Invalid filter_status: '{filter_status}'. Must be one of: {valid_filters}"
+            )
+
+        boards = self._request(
+            "members/me/boards",
+            {"fields": "name,url,closed,dateLastActivity", "filter": filter_status},
+        )
+        return cast(list[dict], boards)
 
     def get_lists(self) -> list[dict]:
         """Get all lists on the board"""
+        if not self.board_id:
+            raise ValueError(
+                "board_id is required for this operation. "
+                "Initialize TrelloReader with board_id or board_url parameter."
+            )
         return cast(
             list[dict], self._request(f"boards/{self.board_id}/lists", {"fields": "name,id,pos"})
         )
@@ -374,6 +419,11 @@ class TrelloReader:
         - Custom field items (custom field values)
         - Stickers (visual decorations)
         """
+        if not self.board_id:
+            raise ValueError(
+                "board_id is required for this operation. "
+                "Initialize TrelloReader with board_id or board_url parameter."
+            )
         cards = self._paginated_request(
             f"boards/{self.board_id}/cards",
             {
