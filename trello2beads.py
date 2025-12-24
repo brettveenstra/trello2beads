@@ -487,18 +487,26 @@ class TrelloReader:
 class BeadsWriter:
     """Write issues to beads via bd CLI"""
 
-    def __init__(self, db_path: str | None = None):
-        """Initialize with optional custom database path
+    def __init__(self, db_path: str | None = None, dry_run: bool = False):
+        """Initialize with optional custom database path and dry-run mode
 
         Args:
             db_path: Path to beads database file (optional)
+            dry_run: If True, print commands instead of executing them (default: False)
 
         Raises:
-            BeadsCommandError: If bd CLI is not available
+            BeadsCommandError: If bd CLI is not available (skipped in dry-run mode)
         """
         self.db_path = db_path
-        self._check_bd_available()
-        logger.info("BeadsWriter initialized%s", f" with db_path={db_path}" if db_path else "")
+        self.dry_run = dry_run
+
+        # Skip pre-flight check in dry-run mode
+        if not dry_run:
+            self._check_bd_available()
+
+        mode = " (dry-run mode)" if dry_run else ""
+        db_info = f" with db_path={db_path}" if db_path else ""
+        logger.info("BeadsWriter initialized%s%s", db_info, mode)
 
     def _check_bd_available(self) -> None:
         """Verify that bd CLI is available and executable
@@ -663,6 +671,14 @@ class BeadsWriter:
         logger.info("Creating issue: %s (type=%s, priority=%d)", title, issue_type, priority)
         logger.debug("Command: %s", " ".join(cmd))
 
+        # Dry-run mode: print command instead of executing
+        if self.dry_run:
+            print(f"[DRY-RUN] Would execute: {' '.join(cmd)}")
+            # Return a mock issue ID for dry-run mode
+            mock_id = "dryrun-mock"
+            logger.info("[DRY-RUN] Mock issue ID: %s", mock_id)
+            return mock_id
+
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         except subprocess.TimeoutExpired as e:
@@ -762,6 +778,12 @@ class BeadsWriter:
 
         logger.info("Updating %s status to: %s", issue_id, status)
         logger.debug("Command: %s", " ".join(cmd))
+
+        # Dry-run mode: print command instead of executing
+        if self.dry_run:
+            print(f"[DRY-RUN] Would execute: {' '.join(cmd)}")
+            logger.info("[DRY-RUN] Would update %s status to %s", issue_id, status)
+            return
 
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
