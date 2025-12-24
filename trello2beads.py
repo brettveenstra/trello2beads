@@ -26,6 +26,7 @@ For full documentation, see README.md
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -535,6 +536,75 @@ class BeadsWriter:
                 command=["bd", "--help"],
             ) from e
 
+    def _parse_issue_id(self, output: str) -> str | None:
+        """Parse issue ID from bd CLI output using regex
+
+        Args:
+            output: The stdout output from bd create command
+
+        Returns:
+            Parsed issue ID if found, None otherwise
+
+        Examples:
+            >>> _parse_issue_id("✓ Created issue: trello2beads-abc")
+            'trello2beads-abc'
+            >>> _parse_issue_id("Created issue: myproject-123")
+            'myproject-123'
+        """
+        # Pattern matches various bd output formats:
+        # - "✓ Created issue: project-id"
+        # - "Created issue: project-id"
+        # - "Issue created: project-id"
+        # Issue ID format: prefix-alphanumeric (e.g., trello2beads-abc, project-123)
+        patterns = [
+            r"Created issue:\s+([a-zA-Z0-9]+-[a-zA-Z0-9]+)",  # Standard format
+            r"Issue created:\s+([a-zA-Z0-9]+-[a-zA-Z0-9]+)",  # Alternative format
+            r"✓\s+Created\s+([a-zA-Z0-9]+-[a-zA-Z0-9]+)",  # Compact format
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, output, re.MULTILINE | re.IGNORECASE)
+            if match:
+                issue_id = match.group(1)
+                logger.debug("Parsed issue ID: %s using pattern: %s", issue_id, pattern)
+                return issue_id
+
+        logger.debug("No issue ID found in output using any pattern")
+        return None
+
+    def _validate_issue_id(self, issue_id: str) -> bool:
+        """Validate that issue ID matches expected beads format
+
+        Args:
+            issue_id: The issue ID to validate
+
+        Returns:
+            True if valid, False otherwise
+
+        Examples:
+            >>> _validate_issue_id("trello2beads-abc")
+            True
+            >>> _validate_issue_id("project-123")
+            True
+            >>> _validate_issue_id("invalid")
+            False
+            >>> _validate_issue_id("")
+            False
+        """
+        # Beads issue IDs follow format: prefix-suffix
+        # Prefix: project name (alphanumeric, hyphens allowed)
+        # Suffix: short hash (alphanumeric, typically 3-8 chars)
+        # Examples: trello2beads-abc, myproject-x7z, project-name-123
+        pattern = r"^[a-zA-Z0-9]+-[a-zA-Z0-9]+$"
+        is_valid = bool(re.match(pattern, issue_id))
+
+        if not is_valid:
+            logger.warning(
+                "Issue ID validation failed: %s (expected format: prefix-suffix)", issue_id
+            )
+
+        return is_valid
+
     def create_issue(
         self,
         title: str,
@@ -627,12 +697,8 @@ class BeadsWriter:
                 returncode=result.returncode,
             )
 
-        # Parse issue ID from output (format: "✓ Created issue: trello2beads-xyz")
-        issue_id = None
-        for line in result.stdout.split("\n"):
-            if "Created issue:" in line:
-                issue_id = line.split("Created issue:")[1].strip()
-                break
+        # Parse issue ID from output using regex (robust parsing)
+        issue_id = self._parse_issue_id(result.stdout)
 
         if not issue_id:
             error_msg = (
@@ -643,6 +709,24 @@ class BeadsWriter:
                 f"Update beads to the latest version."
             )
             logger.error("Issue ID parsing failed: %s", error_msg)
+            raise BeadsIssueCreationError(
+                error_msg,
+                command=cmd,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                returncode=result.returncode,
+            )
+
+        # Validate issue ID format
+        if not self._validate_issue_id(issue_id):
+            error_msg = (
+                f"Parsed issue ID has invalid format: {issue_id}\n"
+                f"Title: {title}\n"
+                f"Expected format: prefix-suffix (e.g., trello2beads-abc)\n"
+                f"\nSuggestion: This may indicate a bd CLI output format change. "
+                f"Check bd version and update if needed."
+            )
+            logger.error("Issue ID validation failed: %s", error_msg)
             raise BeadsIssueCreationError(
                 error_msg,
                 command=cmd,
