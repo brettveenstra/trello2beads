@@ -108,15 +108,60 @@ class TrelloReader:
     We use 10 req/sec with burst allowance of 10 for conservative usage.
     """
 
-    def __init__(self, api_key: str, token: str, board_id: str):
+    def __init__(
+        self, api_key: str, token: str, board_id: str | None = None, board_url: str | None = None
+    ):
         self.api_key = api_key
         self.token = token
-        self.board_id = board_id
         self.base_url = "https://api.trello.com/1"
 
         # Rate limiter: 10 requests/sec, burst up to 10
         # Conservative limit to respect Trello's 100 req/10sec token limit
         self.rate_limiter = RateLimiter(requests_per_second=10.0, burst_allowance=10)
+
+        # Board ID can be provided directly or extracted from URL
+        if board_url:
+            self.board_id = self.parse_board_url(board_url)
+        elif board_id:
+            self.board_id = board_id
+        else:
+            raise ValueError("Either board_id or board_url must be provided")
+
+    @staticmethod
+    def parse_board_url(url: str) -> str:
+        """Extract board ID from Trello URL
+
+        Supports formats:
+        - https://trello.com/b/Bm0nnz1R/board-name
+        - https://trello.com/b/Bm0nnz1R
+        - trello.com/b/Bm0nnz1R/board-name
+
+        Args:
+            url: Trello board URL
+
+        Returns:
+            Board ID (8-character alphanumeric string)
+
+        Raises:
+            ValueError: If URL format is invalid or board ID cannot be extracted
+        """
+        import re
+
+        if not url:
+            raise ValueError("URL cannot be empty")
+
+        # Match Trello board URL patterns
+        # Captures the board ID (e.g., Bm0nnz1R) from various URL formats
+        patterns = [
+            r"trello\.com/b/([a-zA-Z0-9]+)",  # Matches with or without https://
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+
+        raise ValueError(f"Could not extract board ID from URL: {url}")
 
     def _request(self, endpoint: str, params: dict | None = None) -> Any:
         """Make authenticated request to Trello API with rate limiting"""
@@ -778,24 +823,39 @@ def main() -> None:
     api_key = os.getenv("TRELLO_API_KEY")
     token = os.getenv("TRELLO_TOKEN")
     board_id = os.getenv("TRELLO_BOARD_ID")
+    board_url = os.getenv("TRELLO_BOARD_URL")
 
-    if not all([api_key, token, board_id]):
+    # Validate credentials (need either board_id OR board_url)
+    if not api_key or not token:
         print("❌ Error: Missing required Trello credentials")
         print("\nRequired environment variables:")
         print("  TRELLO_API_KEY     - Your Trello API key")
         print("  TRELLO_TOKEN       - Your Trello API token")
-        print("  TRELLO_BOARD_ID    - The board ID to convert")
+        print("\nAnd one of:")
+        print("  TRELLO_BOARD_ID    - The board ID (e.g., Bm0nnz1R)")
+        print(
+            "  TRELLO_BOARD_URL   - The full board URL (e.g., https://trello.com/b/Bm0nnz1R/my-board)"
+        )
         print("\nSet them in your environment or create a .env file:")
         print('  export TRELLO_API_KEY="..."')
         print('  export TRELLO_TOKEN="..."')
-        print('  export TRELLO_BOARD_ID="..."')
+        print('  export TRELLO_BOARD_ID="..." (or TRELLO_BOARD_URL="...")')
+        print("\nFor setup instructions, see README.md")
+        sys.exit(1)
+
+    if not board_id and not board_url:
+        print("❌ Error: Missing board identifier")
+        print("\nYou must provide either:")
+        print("  TRELLO_BOARD_ID    - The board ID (e.g., Bm0nnz1R)")
+        print(
+            "  TRELLO_BOARD_URL   - The full board URL (e.g., https://trello.com/b/Bm0nnz1R/my-board)"
+        )
         print("\nFor setup instructions, see README.md")
         sys.exit(1)
 
     # Type narrowing for mypy
     assert api_key is not None
     assert token is not None
-    assert board_id is not None
 
     # Check for flags
     dry_run = "--dry-run" in sys.argv or "-n" in sys.argv
@@ -836,7 +896,7 @@ def main() -> None:
     snapshot_path = os.getenv("SNAPSHOT_PATH") or str(Path.cwd() / "trello_snapshot.json")
 
     # Initialize components
-    trello = TrelloReader(api_key, token, board_id)
+    trello = TrelloReader(api_key, token, board_id=board_id, board_url=board_url)
     beads = BeadsWriter(db_path=beads_db_path)
     converter = TrelloToBeadsConverter(trello, beads, status_keywords=custom_status_keywords)
 

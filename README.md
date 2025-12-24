@@ -10,6 +10,7 @@ Migrate your Trello boards to [beads](https://github.com/steveyegge/beads) - a l
 - **Smart Status Mapping**: Automatically maps Trello lists to beads status (open/in_progress/closed)
 - **URL Resolution**: Converts Trello card references to beads issue references
 - **Read-Only**: Safe, non-destructive Trello access (never modifies your Trello board)
+- **Board Discovery**: Accepts board URL or ID - just copy/paste the URL from your browser
 - **Rate Limiting**: Built-in rate limiting respects Trello's API limits (10 req/sec with burst support)
 - **Pagination**: Automatic pagination handles boards with >1000 cards or comments
 - **Offline Support**: Snapshot caching for faster re-runs and offline testing
@@ -43,17 +44,26 @@ Get your Trello API credentials:
 3. Get your **API Key**
 4. Generate a **Token** (click "Token" link, authorize access)
 
-Find your board ID:
+Find your board (choose one option):
+
+**Option 1: Use Board URL (easiest)**
+- Open your Trello board in a browser
+- Copy the full URL from the address bar
+- Example: `https://trello.com/b/ABC123/my-board-name`
+
+**Option 2: Use Board ID**
 - Open your Trello board in a browser
 - Look at the URL: `https://trello.com/b/ABC123/board-name`
-- The board ID is `ABC123`
+- The board ID is the 8-character code: `ABC123`
 
-Set environment variables:
+Set environment variables (choose board_id OR board_url):
 
 ```bash
 export TRELLO_API_KEY="your-api-key-here"
 export TRELLO_TOKEN="your-token-here"
-export TRELLO_BOARD_ID="your-board-id-here"
+export TRELLO_BOARD_URL="https://trello.com/b/ABC123/board-name"  # Option 1
+# OR
+export TRELLO_BOARD_ID="ABC123"  # Option 2
 ```
 
 Or create a `.env` file:
@@ -62,7 +72,8 @@ Or create a `.env` file:
 cat > .env <<'EOF'
 TRELLO_API_KEY=your-api-key-here
 TRELLO_TOKEN=your-token-here
-TRELLO_BOARD_ID=your-board-id-here
+TRELLO_BOARD_URL=https://trello.com/b/ABC123/my-board
+# OR use TRELLO_BOARD_ID=ABC123
 EOF
 ```
 
@@ -224,6 +235,27 @@ The tool automatically handles **large boards with more than 1000 cards**:
 5. Combines all pages into a single list
 
 This ensures **complete data retrieval** for large boards without hitting Trello's pagination limits.
+
+### Board Discovery
+
+The tool supports **multiple ways to specify your board**:
+
+- **Board URL**: Provide the full URL from your browser (easiest - just copy and paste)
+  - Example: `https://trello.com/b/Bm0nnz1R/my-project-board`
+  - Works with or without `https://`
+  - Works with board name in URL or without
+
+- **Board ID**: Provide just the 8-character board ID
+  - Example: `Bm0nnz1R`
+  - Extracted from URL if needed
+
+**How it works**:
+- Uses regex pattern matching to extract board ID from URLs
+- Supports various URL formats (with/without protocol, with/without board name)
+- Validates format before making API calls
+- If board URL is provided, board ID is automatically extracted
+
+This makes it easy to migrate boards - just copy the URL from your browser!
 
 ### Mapping Strategy
 
