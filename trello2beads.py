@@ -613,6 +613,83 @@ class BeadsWriter:
 
         return is_valid
 
+    def _validate_inputs(
+        self,
+        title: str,
+        description: str,
+        status: str,
+        priority: int,
+        issue_type: str,
+        labels: list[str] | None,
+    ) -> None:
+        """Validate inputs before calling bd CLI
+
+        Args:
+            title: Issue title
+            description: Issue description
+            status: Issue status
+            priority: Issue priority
+            issue_type: Issue type
+            labels: List of labels
+
+        Raises:
+            ValueError: If any input is invalid
+        """
+        # Validate title
+        if not title or not title.strip():
+            raise ValueError("Title cannot be empty")
+
+        if len(title) > 500:
+            raise ValueError(f"Title too long ({len(title)} chars). Maximum 500 characters.")
+
+        # Validate description length (reasonable limit)
+        if len(description) > 50000:
+            raise ValueError(
+                f"Description too long ({len(description)} chars). Maximum 50000 characters."
+            )
+
+        # Validate status
+        valid_statuses = {"open", "in_progress", "blocked", "deferred", "closed"}
+        if status not in valid_statuses:
+            raise ValueError(
+                f"Invalid status: '{status}'. Must be one of: {sorted(valid_statuses)}"
+            )
+
+        # Validate priority
+        if not isinstance(priority, int):
+            raise ValueError(f"Priority must be an integer, got: {type(priority).__name__}")
+
+        if not 0 <= priority <= 4:
+            raise ValueError(f"Priority must be 0-4, got: {priority}")
+
+        # Validate issue_type
+        valid_types = {"task", "bug", "feature", "epic", "chore"}
+        if issue_type not in valid_types:
+            raise ValueError(
+                f"Invalid issue_type: '{issue_type}'. Must be one of: {sorted(valid_types)}"
+            )
+
+        # Validate labels
+        if labels is not None:
+            if not isinstance(labels, list):
+                raise ValueError(f"Labels must be a list, got: {type(labels).__name__}")
+
+            for label in labels:
+                if not isinstance(label, str):
+                    raise ValueError(
+                        f"All labels must be strings, got: {type(label).__name__} in {labels}"
+                    )
+
+                if not label.strip():
+                    raise ValueError("Labels cannot be empty strings")
+
+                # Check for problematic characters that might break command line
+                if "," in label:
+                    raise ValueError(
+                        f"Label contains comma (reserved separator): '{label}'. "
+                        f"Use alternative punctuation."
+                    )
+
     def create_issue(
         self,
         title: str,
@@ -638,8 +715,12 @@ class BeadsWriter:
             Created issue ID
 
         Raises:
+            ValueError: If inputs are invalid
             BeadsIssueCreationError: If issue creation fails
         """
+        # Validate inputs before calling bd CLI
+        self._validate_inputs(title, description, status, priority, issue_type, labels)
+
         cmd = ["bd"]
 
         # Add --db flag if custom database specified
@@ -767,8 +848,19 @@ class BeadsWriter:
             status: New status value
 
         Raises:
+            ValueError: If inputs are invalid
             BeadsUpdateError: If status update fails
         """
+        # Validate inputs
+        if not issue_id or not issue_id.strip():
+            raise ValueError("Issue ID cannot be empty")
+
+        valid_statuses = {"open", "in_progress", "blocked", "deferred", "closed"}
+        if status not in valid_statuses:
+            raise ValueError(
+                f"Invalid status: '{status}'. Must be one of: {sorted(valid_statuses)}"
+            )
+
         cmd = ["bd"]
 
         if self.db_path:
