@@ -153,8 +153,20 @@ def main() -> None:
     # Snapshot path for caching Trello API responses
     snapshot_path = os.getenv("SNAPSHOT_PATH") or str(Path.cwd() / "trello_snapshot.json")
 
-    # Initialize components
+    # Initialize Trello client
     trello = TrelloReader(api_key, token, board_id=board_id, board_url=board_url)
+
+    # Pre-flight check: Validate credentials and board access
+    logger.info("🔍 Validating Trello credentials and board access...")
+    try:
+        trello.validate_credentials()
+        logger.info("✅ Credentials valid, board accessible")
+        logger.info("")
+    except Exception as e:
+        logger.error(f"❌ Validation failed: {e}")
+        sys.exit(1)
+
+    # Initialize beads client and converter
     beads = BeadsWriter(db_path=beads_db_path)
     converter = TrelloToBeadsConverter(trello, beads, status_keywords=custom_status_keywords)
 

@@ -239,6 +239,50 @@ class TrelloReader:
 
         return all_items
 
+    def validate_credentials(self) -> None:
+        """Verify credentials work and board is accessible.
+
+        Tests API credentials by attempting to fetch the authenticated user's boards.
+        If board_id is set, also verifies that the board exists and is accessible.
+
+        Raises:
+            TrelloAuthenticationError: If API credentials are invalid
+            TrelloNotFoundError: If board_id is set but board doesn't exist or isn't accessible
+            TrelloAPIError: If other API errors occur
+
+        Example:
+            >>> reader = TrelloReader(api_key="...", token="...", board_id="Bm0nnz1R")
+            >>> reader.validate_credentials()  # Raises exception if invalid
+        """
+        # Quick test: Fetch user's boards (validates credentials)
+        try:
+            self._request(
+                "members/me/boards", params={"filter": "open", "fields": "id,name", "limit": "1"}
+            )
+        except TrelloAuthenticationError:
+            # Re-raise with our existing good error message
+            raise
+        except TrelloAPIError:
+            # Re-raise other API errors
+            raise
+
+        # If board_id is set, verify we can access it
+        if self.board_id:
+            try:
+                self._request(f"boards/{self.board_id}", params={"fields": "id,name,url"})
+                # Success - board is accessible
+            except TrelloNotFoundError as e:
+                raise TrelloNotFoundError(
+                    f"Board '{self.board_id}' not found or you don't have access to it.\n"
+                    f"Possible causes:\n"
+                    f"  1. Board ID is incorrect\n"
+                    f"  2. Board is private and your token doesn't have access\n"
+                    f"  3. Board has been deleted or archived\n"
+                    f"Check your board URL and privacy settings.",
+                    status_code=404,
+                    response_text=f"Board {self.board_id} not found",
+                ) from e
+
     def get_board(self) -> dict:
         """Get board info"""
         if not self.board_id:
