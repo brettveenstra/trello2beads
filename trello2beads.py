@@ -1406,18 +1406,20 @@ class TrelloToBeadsConverter:
 
     def _resolve_card_references(
         self, cards: list[dict], comments_by_card: dict[str, list[dict]]
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, int]:
         """
         Second pass: Find Trello card URLs in descriptions/attachments
         and replace with beads issue references. Also add comments as beads comments.
+        Creates "related" type dependencies for cross-references.
 
         Returns:
-            tuple: (resolved_count, comments_added_count)
+            tuple: (resolved_count, comments_added_count, dependencies_created_count)
         """
         import re
 
         resolved_count = 0
         total_comments_added = 0
+        dependencies_created = 0
 
         # Regex patterns for Trello card URLs
         # Matches: https://trello.com/c/abc123 or trello.com/c/abc123/card-name
@@ -1427,6 +1429,9 @@ class TrelloToBeadsConverter:
             beads_id = self.trello_to_beads.get(card["id"])
             if not beads_id:
                 continue
+
+            # Track referenced cards for creating dependencies
+            referenced_beads_ids: set[str] = set()
 
             # Get current description from card
             original_desc = card.get("desc", "")
@@ -1443,11 +1448,12 @@ class TrelloToBeadsConverter:
                 # Look up what beads issue this Trello card maps to
                 target_beads_id = self.card_url_map.get(short_link)
 
-                if target_beads_id:
+                if target_beads_id and target_beads_id != beads_id:
                     # Replace Trello URL with beads reference
                     beads_ref = f"See {target_beads_id}"
                     updated_desc = updated_desc.replace(full_url, beads_ref)
                     replacements_made = True
+                    referenced_beads_ids.add(target_beads_id)
                     print(f"  ✓ Resolved {short_link} → {target_beads_id} in description")
 
             # Add comments as actual beads comments (with URL resolution)
@@ -1455,6 +1461,17 @@ class TrelloToBeadsConverter:
             if comments_added > 0:
                 total_comments_added += comments_added
                 print(f"  ✓ Added {comments_added} comment(s) to {beads_id}")
+
+            # Also check comments for card references (for dependency tracking)
+            card_comments = comments_by_card.get(card["id"], [])
+            for comment in card_comments:
+                comment_text = comment.get("data", {}).get("text", "")
+                comment_matches = trello_url_pattern.finditer(comment_text)
+                for match in comment_matches:
+                    short_link = match.group(1)
+                    target_beads_id = self.card_url_map.get(short_link)
+                    if target_beads_id and target_beads_id != beads_id:
+                        referenced_beads_ids.add(target_beads_id)
 
             # Also check attachments for Trello card links
             attachment_refs = []
@@ -1467,11 +1484,12 @@ class TrelloToBeadsConverter:
                         short_link = att_match.group(1)
                         target_beads_id = self.card_url_map.get(short_link)
 
-                        if target_beads_id:
+                        if target_beads_id and target_beads_id != beads_id:
                             attachment_refs.append(
                                 {"name": att["name"], "beads_id": target_beads_id}
                             )
                             replacements_made = True
+                            referenced_beads_ids.add(target_beads_id)
                             print(f"  ✓ Attachment '{att['name']}' → {target_beads_id}")
 
             # If we made any replacements, rebuild and update the full description
@@ -1513,7 +1531,26 @@ class TrelloToBeadsConverter:
                 self._update_description(beads_id, full_description)
                 resolved_count += 1
 
-        return resolved_count, total_comments_added
+            # Create "related" type dependencies for all referenced cards
+            if referenced_beads_ids:
+                for target_id in referenced_beads_ids:
+                    try:
+                        self.beads.add_dependency(beads_id, target_id, "related")
+                        dependencies_created += 1
+                        logger.debug("Created related dependency: %s → %s", beads_id, target_id)
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to create dependency %s → %s: %s",
+                            beads_id,
+                            target_id,
+                            e,
+                        )
+
+                print(
+                    f"  ✓ Created {len(referenced_beads_ids)} related dependency/dependencies for {beads_id}"
+                )
+
+        return resolved_count, total_comments_added, dependencies_created
 
     def _update_description(self, issue_id: str, new_description: str) -> None:
         """Update beads issue description"""
@@ -1751,14 +1788,16 @@ class TrelloToBeadsConverter:
 
         # SECOND PASS: Resolve Trello card references and add comments (if not dry run)
         comments_added = 0
+        dependencies_created = 0
         if not dry_run and self.trello_to_beads:
             print()
             print("🔄 Pass 2: Resolving Trello card references and adding comments...")
-            resolved_count, comments_added = self._resolve_card_references(
+            resolved_count, comments_added, dependencies_created = self._resolve_card_references(
                 cards_sorted, comments_by_card
             )
             print(f"✅ Resolved {resolved_count} Trello card references")
             print(f"✅ Added {comments_added} comments to beads issues")
+            print(f"✅ Created {dependencies_created} related dependencies")
 
         # Summary report
         print()
@@ -1787,6 +1826,7 @@ class TrelloToBeadsConverter:
             print(
                 f"  Comments: {comments_added} added as beads comments (from {comments_count} cards)"
             )
+            print(f"  Dependencies: {dependencies_created} related dependencies created")
 
             print("\nStatus Distribution:")
             status_counts: dict[str, int] = {}
