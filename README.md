@@ -26,13 +26,78 @@ Migrate your Trello boards to [beads](https://github.com/steveyegge/beads) - a l
 
 ### Installation
 
+#### macOS
+
 ```bash
-# Clone or download this repository
+# Install Python 3.10+ (if not already installed)
+# Option 1: Using Homebrew (recommended)
+brew install python@3.12
+
+# Option 2: Download from python.org
+# Visit https://www.python.org/downloads/macos/
+
+# Install beads
+# Follow instructions at https://github.com/steveyegge/beads
+
+# Clone this repository
+git clone https://github.com/brettveenstra/trello2beads.git
+cd trello2beads
+
+# Install Python dependencies
+pip3 install -r requirements.txt
+```
+
+#### Windows
+
+```powershell
+# Install Python 3.10+ (if not already installed)
+# Download installer from https://www.python.org/downloads/windows/
+# Make sure to check "Add Python to PATH" during installation
+
+# Install beads
+# Follow instructions at https://github.com/steveyegge/beads
+
+# Clone this repository (using Git Bash or PowerShell)
 git clone https://github.com/brettveenstra/trello2beads.git
 cd trello2beads
 
 # Install Python dependencies
 pip install -r requirements.txt
+```
+
+#### Linux (Ubuntu/Debian)
+
+```bash
+# Install Python 3.10+ (if not already installed)
+sudo apt update
+sudo apt install python3.12 python3-pip python3-venv
+
+# Install beads
+# Follow instructions at https://github.com/steveyegge/beads
+
+# Clone this repository
+git clone https://github.com/brettveenstra/trello2beads.git
+cd trello2beads
+
+# Install Python dependencies
+pip3 install -r requirements.txt
+```
+
+#### Linux (Fedora/RHEL/CentOS)
+
+```bash
+# Install Python 3.10+ (if not already installed)
+sudo dnf install python3.12 python3-pip
+
+# Install beads
+# Follow instructions at https://github.com/steveyegge/beads
+
+# Clone this repository
+git clone https://github.com/brettveenstra/trello2beads.git
+cd trello2beads
+
+# Install Python dependencies
+pip3 install -r requirements.txt
 ```
 
 ### Setup Credentials
@@ -80,6 +145,8 @@ all_boards = reader.list_boards(filter_status="all")
 
 Set environment variables (choose board_id OR board_url):
 
+**macOS / Linux**:
+
 ```bash
 export TRELLO_API_KEY="your-api-key-here"
 export TRELLO_TOKEN="your-token-here"
@@ -88,7 +155,25 @@ export TRELLO_BOARD_URL="https://trello.com/b/ABC123/board-name"  # Option 1
 export TRELLO_BOARD_ID="ABC123"  # Option 2
 ```
 
-Or create a `.env` file:
+**Windows (PowerShell)**:
+
+```powershell
+$env:TRELLO_API_KEY="your-api-key-here"
+$env:TRELLO_TOKEN="your-token-here"
+$env:TRELLO_BOARD_URL="https://trello.com/b/ABC123/board-name"  # Option 1
+# OR
+$env:TRELLO_BOARD_ID="ABC123"  # Option 2
+```
+
+**Windows (Command Prompt)**:
+
+```cmd
+set TRELLO_API_KEY=your-api-key-here
+set TRELLO_TOKEN=your-token-here
+set TRELLO_BOARD_URL=https://trello.com/b/ABC123/board-name
+```
+
+Or create a `.env` file (all platforms):
 
 ```bash
 cat > .env <<'EOF'
@@ -97,6 +182,16 @@ TRELLO_TOKEN=your-token-here
 TRELLO_BOARD_URL=https://trello.com/b/ABC123/my-board
 # OR use TRELLO_BOARD_ID=ABC123
 EOF
+```
+
+**Windows** (create `.env` file with text editor or PowerShell):
+
+```powershell
+@"
+TRELLO_API_KEY=your-api-key-here
+TRELLO_TOKEN=your-token-here
+TRELLO_BOARD_URL=https://trello.com/b/ABC123/my-board
+"@ | Out-File -FilePath .env -Encoding UTF8
 ```
 
 ### Run Conversion
