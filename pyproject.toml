@@ -1,3 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trello2beads"
+version = "1.0.0"
+description = "High-fidelity Trello board migration to beads issue tracking"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Brett Veenstra", email = "brettveenstra@gmail.com"}
+]
+keywords = ["trello", "beads", "migration", "issue-tracking", "project-management"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "requests>=2.31.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/brettveenstra/trello2beads"
+Issues = "https://github.com/brettveenstra/trello2beads/issues"
+
+[project.scripts]
+trello2beads = "trello2beads.cli:main"
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"

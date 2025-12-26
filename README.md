@@ -43,7 +43,10 @@ brew install python@3.12
 git clone https://github.com/brettveenstra/trello2beads.git
 cd trello2beads
 
-# Install Python dependencies
+# Install the package (recommended - enables running from anywhere)
+pip3 install -e .
+
+# OR just install dependencies (if you want to run from repo directory only)
 pip3 install -r requirements.txt
 ```
 
@@ -61,7 +64,10 @@ pip3 install -r requirements.txt
 git clone https://github.com/brettveenstra/trello2beads.git
 cd trello2beads
 
-# Install Python dependencies
+# Install the package (recommended - enables running from anywhere)
+pip install -e .
+
+# OR just install dependencies (if you want to run from repo directory only)
 pip install -r requirements.txt
 ```
 
@@ -79,7 +85,10 @@ sudo apt install python3.12 python3-pip python3-venv
 git clone https://github.com/brettveenstra/trello2beads.git
 cd trello2beads
 
-# Install Python dependencies
+# Install the package (recommended - enables running from anywhere)
+pip3 install -e .
+
+# OR just install dependencies (if you want to run from repo directory only)
 pip3 install -r requirements.txt
 ```
 
@@ -96,7 +105,10 @@ sudo dnf install python3.12 python3-pip
 git clone https://github.com/brettveenstra/trello2beads.git
 cd trello2beads
 
-# Install Python dependencies
+# Install the package (recommended - enables running from anywhere)
+pip3 install -e .
+
+# OR just install dependencies (if you want to run from repo directory only)
 pip3 install -r requirements.txt
 ```
 
@@ -196,21 +208,68 @@ TRELLO_BOARD_URL=https://trello.com/b/ABC123/my-board
 
 ### Run Conversion
 
+There are three ways to run the converter:
+
+**Option 1: Using installed command (recommended - works from anywhere)**
+
+After running `pip install -e .`:
+
 ```bash
 # Initialize a beads database
 mkdir my-project && cd my-project
 bd init --prefix myproject
 
 # Preview what will be converted (dry-run)
-python3 ../trello2beads.py --dry-run
+trello2beads --dry-run
 
 # Run the actual conversion
-python3 ../trello2beads.py
+trello2beads
 
 # View your converted issues
 bd list
 bd show myproject-abc
 ```
+
+**Option 2: Using Python module (works from repo directory)**
+
+```bash
+# Must be in the repo directory or have PYTHONPATH set
+cd /path/to/trello2beads
+
+# Preview conversion
+python3 -m trello2beads --dry-run
+
+# Run conversion
+python3 -m trello2beads
+```
+
+**Option 3: Using convenience scripts (works from repo directory)**
+
+**macOS / Linux:**
+```bash
+cd /path/to/trello2beads  # Navigate to the cloned repository
+
+# Preview conversion
+./trello2beads.sh --dry-run
+
+# Run conversion
+./trello2beads.sh
+```
+
+**Windows (PowerShell):**
+```powershell
+cd C:\path\to\trello2beads  # Navigate to the cloned repository
+
+# Preview conversion
+.\trello2beads.ps1 --dry-run
+
+# Run conversion
+.\trello2beads.ps1
+```
+
+The scripts automatically set up PYTHONPATH and call the Python module for you.
+
+**Recommendation**: Use Option 1 (`pip install -e .`) for the best experience - it lets you run `trello2beads` from any directory.
 
 ## Usage
 
@@ -226,8 +285,11 @@ export TRELLO_BOARD_ID="..."
 mkdir my-trello-board && cd my-trello-board
 bd init --prefix myboard
 
-# Run conversion
-python3 /path/to/trello2beads.py
+# Run conversion (after installing with: pip install -e .)
+trello2beads
+
+# OR use Python module if not installed
+# python3 -m trello2beads
 ```
 
 ### Dry Run (Preview Only)
@@ -235,7 +297,8 @@ python3 /path/to/trello2beads.py
 Preview the conversion without creating any issues:
 
 ```bash
-python3 trello2beads.py --dry-run
+trello2beads --dry-run
+# OR: python3 -m trello2beads --dry-run (if not installed)
 ```
 
 This shows:
@@ -261,7 +324,7 @@ cat > my_mapping.json <<'EOF'
 EOF
 
 # Run with custom mapping
-python3 trello2beads.py --status-mapping my_mapping.json
+python3 -m trello2beads --status-mapping my_mapping.json
 ```
 
 **Partial overrides** are supported - unspecified statuses use defaults:
@@ -281,15 +344,15 @@ For boards with 100+ cards, enable parallel execution to significantly reduce co
 
 ```bash
 # Enable parallel mode with 5 workers (recommended)
-python3 trello2beads.py --max-workers 5
+python3 -m trello2beads --max-workers 5
 
 # Aggressive parallelism with 10 workers
-python3 trello2beads.py --max-workers 10
+python3 -m trello2beads --max-workers 10
 
 # Serial execution (default, safe)
-python3 trello2beads.py --max-workers 1
+python3 -m trello2beads --max-workers 1
 # OR just omit the flag (serial is default)
-python3 trello2beads.py
+python3 -m trello2beads
 ```
 
 **Performance Improvement**:
@@ -331,7 +394,7 @@ export SNAPSHOT_PATH=/path/to/snapshot.json
 # Use different .env file
 export TRELLO_ENV_FILE=/path/to/credentials.env
 
-python3 trello2beads.py
+python3 -m trello2beads
 ```
 
 ### Snapshot Caching
@@ -342,7 +405,7 @@ To force a fresh fetch:
 
 ```bash
 rm trello_snapshot.json
-python3 trello2beads.py
+python3 -m trello2beads
 ```
 
 ## How It Works
@@ -539,7 +602,7 @@ The original list name is preserved as a label (`list:To Do`) for filtering.
 
 **Conversion**:
 ```bash
-$ python3 trello2beads.py --dry-run
+$ python3 -m trello2beads --dry-run
 
 📊 CONVERSION SUMMARY
 Board: My Simple Board
@@ -568,7 +631,7 @@ Status Distribution:
 
 **Conversion**:
 ```bash
-$ python3 trello2beads.py
+$ python3 -m trello2beads
 
 ✅ Created myproject-001: Write README (list:To Do)
 ✅ Created myproject-002: Setup CI/CD (list:To Do)
@@ -713,7 +776,7 @@ Check your list names - the mapping uses default keywords:
 
 **Solution 1**: Create a custom mapping file:
 ```bash
-python3 trello2beads.py --status-mapping custom.json
+python3 -m trello2beads --status-mapping custom.json
 ```
 
 **Solution 2**: Manually update status after conversion:
