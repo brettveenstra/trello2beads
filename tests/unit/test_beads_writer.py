@@ -616,3 +616,258 @@ class TestDryRunMode:
 
         with pytest.raises(ValueError, match="Invalid status"):
             writer.update_status("test-abc", "invalid")
+
+
+class TestAddDependency:
+    """Test add_dependency method"""
+
+    def test_add_dependency_success(self):
+        """Should add dependency successfully"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "✓ Added dependency"
+            mock_result.stderr = ""
+
+            with patch("subprocess.run", return_value=mock_result) as mock_run:
+                writer.add_dependency("issue-123", "issue-456")
+
+                cmd = mock_run.call_args[0][0]
+                assert "bd" in cmd
+                assert "dep" in cmd
+                assert "add" in cmd
+                assert "issue-123" in cmd
+                assert "issue-456" in cmd
+
+    def test_add_dependency_with_custom_db_path(self):
+        """Should include --db flag when db_path is set"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter(db_path="/custom/beads.db")
+
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "✓ Added dependency"
+            mock_result.stderr = ""
+
+            with patch("subprocess.run", return_value=mock_result) as mock_run:
+                writer.add_dependency("issue-123", "issue-456")
+
+                cmd = mock_run.call_args[0][0]
+                assert "--db" in cmd
+                assert "/custom/beads.db" in cmd
+
+    def test_add_dependency_empty_issue_id(self):
+        """Should raise ValueError for empty issue ID"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            with pytest.raises(ValueError, match="Issue ID cannot be empty"):
+                writer.add_dependency("", "issue-456")
+
+    def test_add_dependency_empty_depends_on_id(self):
+        """Should raise ValueError for empty depends-on ID"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            with pytest.raises(ValueError, match="Depends-on ID cannot be empty"):
+                writer.add_dependency("issue-123", "")
+
+    def test_add_dependency_subprocess_failure(self):
+        """Should raise BeadsUpdateError when bd returns non-zero exit code"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            mock_result = MagicMock()
+            mock_result.returncode = 1
+            mock_result.stdout = ""
+            mock_result.stderr = "Issue not found"
+
+            with (
+                patch("subprocess.run", return_value=mock_result),
+                pytest.raises(BeadsUpdateError, match="Failed to add dependency"),
+            ):
+                writer.add_dependency("issue-123", "issue-456")
+
+    def test_add_dependency_dry_run(self):
+        """Should not execute subprocess in dry-run mode"""
+        writer = BeadsWriter(dry_run=True)
+
+        with patch("subprocess.run") as mock_run:
+            writer.add_dependency("issue-123", "issue-456")
+
+            # Should not call subprocess
+            mock_run.assert_not_called()
+
+
+class TestAddComment:
+    """Test add_comment method"""
+
+    def test_add_comment_success(self):
+        """Should add comment successfully"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "✓ Added comment"
+            mock_result.stderr = ""
+
+            with patch("subprocess.run", return_value=mock_result) as mock_run:
+                writer.add_comment("issue-123", "This is a comment")
+
+                cmd = mock_run.call_args[0][0]
+                assert "bd" in cmd
+                assert "comment" in cmd
+                assert "issue-123" in cmd
+                assert "This is a comment" in cmd
+
+    def test_add_comment_with_author(self):
+        """Should include author flag when provided"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "✓ Added comment"
+            mock_result.stderr = ""
+
+            with patch("subprocess.run", return_value=mock_result) as mock_run:
+                writer.add_comment("issue-123", "Comment text", author="Alice")
+
+                cmd = mock_run.call_args[0][0]
+                assert "--author" in cmd
+                assert "Alice" in cmd
+
+    def test_add_comment_empty_issue_id(self):
+        """Should raise ValueError for empty issue ID"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            with pytest.raises(ValueError, match="Issue ID cannot be empty"):
+                writer.add_comment("", "Comment text")
+
+    def test_add_comment_empty_text(self):
+        """Should raise ValueError for empty comment text"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            with pytest.raises(ValueError, match="Comment text cannot be empty"):
+                writer.add_comment("issue-123", "")
+
+    def test_add_comment_text_too_long(self):
+        """Should raise ValueError for comment exceeding 50000 characters"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+            long_text = "a" * 50001
+
+            with pytest.raises(ValueError, match="Comment too long"):
+                writer.add_comment("issue-123", long_text)
+
+    def test_add_comment_subprocess_failure(self):
+        """Should raise BeadsUpdateError when bd returns non-zero exit code"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            mock_result = MagicMock()
+            mock_result.returncode = 1
+            mock_result.stdout = ""
+            mock_result.stderr = "Issue not found"
+
+            with (
+                patch("subprocess.run", return_value=mock_result),
+                pytest.raises(BeadsUpdateError, match="Failed to add comment"),
+            ):
+                writer.add_comment("issue-123", "Comment text")
+
+    def test_add_comment_dry_run(self):
+        """Should not execute subprocess in dry-run mode"""
+        writer = BeadsWriter(dry_run=True)
+
+        with patch("subprocess.run") as mock_run:
+            writer.add_comment("issue-123", "Comment text")
+
+            # Should not call subprocess
+            mock_run.assert_not_called()
+
+
+class TestGetIssue:
+    """Test get_issue method"""
+
+    def test_get_issue_success(self):
+        """Should retrieve issue successfully"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = '{"id": "test-123", "title": "Test Issue", "status": "open"}'
+            mock_result.stderr = ""
+
+            with patch("subprocess.run", return_value=mock_result) as mock_run:
+                issue = writer.get_issue("test-123")
+
+                cmd = mock_run.call_args[0][0]
+                assert "bd" in cmd
+                assert "show" in cmd
+                assert "test-123" in cmd
+                assert "--json" in cmd
+
+                assert issue["id"] == "test-123"
+                assert issue["title"] == "Test Issue"
+                assert issue["status"] == "open"
+
+    def test_get_issue_empty_issue_id(self):
+        """Should raise ValueError for empty issue ID"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            with pytest.raises(ValueError, match="Issue ID cannot be empty"):
+                writer.get_issue("")
+
+    def test_get_issue_subprocess_failure(self):
+        """Should raise BeadsUpdateError when bd returns non-zero exit code"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            mock_result = MagicMock()
+            mock_result.returncode = 1
+            mock_result.stdout = ""
+            mock_result.stderr = "Issue not found"
+
+            with (
+                patch("subprocess.run", return_value=mock_result),
+                pytest.raises(BeadsUpdateError, match="Failed to retrieve issue"),
+            ):
+                writer.get_issue("test-123")
+
+    def test_get_issue_json_parse_error(self):
+        """Should raise BeadsUpdateError when JSON parsing fails"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "Not valid JSON"
+            mock_result.stderr = ""
+
+            with (
+                patch("subprocess.run", return_value=mock_result),
+                pytest.raises(BeadsUpdateError, match="Could not parse JSON"),
+            ):
+                writer.get_issue("test-123")
+
+    def test_get_issue_dry_run(self):
+        """Should return mock data in dry-run mode"""
+        writer = BeadsWriter(dry_run=True)
+
+        with patch("subprocess.run") as mock_run:
+            issue = writer.get_issue("test-123")
+
+            # Should not call subprocess
+            mock_run.assert_not_called()
+
+            # Should return mock data
+            assert issue["id"] == "dryrun-mock"
+            assert issue["status"] == "open"

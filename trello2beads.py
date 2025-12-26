@@ -1024,6 +1024,270 @@ class BeadsWriter:
 
         logger.debug("Status update successful")
 
+    def add_dependency(self, issue_id: str, depends_on_id: str) -> None:
+        """Add a dependency between two issues.
+
+        Creates a blocking dependency where issue_id depends on depends_on_id.
+        This means depends_on_id must be resolved before issue_id can be closed.
+
+        Args:
+            issue_id: The issue that depends on another (the dependent)
+            depends_on_id: The issue that must be completed first (the dependency)
+
+        Raises:
+            ValueError: If inputs are invalid
+            BeadsUpdateError: If dependency creation fails
+
+        Example:
+            >>> writer.add_dependency("myproject-123", "myproject-456")
+            # myproject-123 now depends on myproject-456
+        """
+        # Validate inputs
+        if not issue_id or not issue_id.strip():
+            raise ValueError("Issue ID cannot be empty")
+
+        if not depends_on_id or not depends_on_id.strip():
+            raise ValueError("Depends-on ID cannot be empty")
+
+        cmd = ["bd"]
+
+        if self.db_path:
+            cmd.extend(["--db", self.db_path])
+
+        cmd.extend(["dep", "add", issue_id, depends_on_id])
+
+        logger.info("Adding dependency: %s depends on %s", issue_id, depends_on_id)
+        logger.debug("Command: %s", " ".join(cmd))
+
+        # Dry-run mode: print command instead of executing
+        if self.dry_run:
+            print(f"[DRY-RUN] Would execute: {' '.join(cmd)}")
+            logger.info("[DRY-RUN] Would add dependency: %s → %s", issue_id, depends_on_id)
+            return
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired as e:
+            raise BeadsUpdateError(
+                f"Dependency creation timed out after 30 seconds.\n"
+                f"Issue: {issue_id}\n"
+                f"Depends on: {depends_on_id}\n"
+                f"Command: {' '.join(cmd)}",
+                command=cmd,
+            ) from e
+        except Exception as e:
+            raise BeadsUpdateError(
+                f"Unexpected error adding dependency.\n"
+                f"Issue: {issue_id}\n"
+                f"Depends on: {depends_on_id}\n"
+                f"Error: {e}",
+                command=cmd,
+            ) from e
+
+        if result.returncode != 0:
+            error_msg = (
+                f"Failed to add dependency.\n"
+                f"Issue: {issue_id}\n"
+                f"Depends on: {depends_on_id}\n"
+                f"Command: {' '.join(cmd)}\n"
+                f"Exit code: {result.returncode}\n"
+                f"Error output: {result.stderr.strip() if result.stderr else '(none)'}\n"
+                f"\nSuggestion: Verify both issue IDs exist (run 'bd show <issue-id>')."
+            )
+            logger.error("Dependency creation failed: %s", error_msg)
+            raise BeadsUpdateError(
+                error_msg,
+                command=cmd,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                returncode=result.returncode,
+            )
+
+        logger.debug("Dependency added successfully")
+
+    def add_comment(self, issue_id: str, text: str, author: str | None = None) -> None:
+        """Add a comment to an issue.
+
+        Args:
+            issue_id: Issue ID to comment on
+            text: Comment text
+            author: Optional author name (default: current user from $USER)
+
+        Raises:
+            ValueError: If inputs are invalid
+            BeadsUpdateError: If comment creation fails
+
+        Example:
+            >>> writer.add_comment("myproject-123", "Working on this now")
+            >>> writer.add_comment("myproject-456", "Blocked by API issue", author="Alice")
+        """
+        # Validate inputs
+        if not issue_id or not issue_id.strip():
+            raise ValueError("Issue ID cannot be empty")
+
+        if not text or not text.strip():
+            raise ValueError("Comment text cannot be empty")
+
+        if len(text) > 50000:
+            raise ValueError(f"Comment too long ({len(text)} chars). Maximum 50000 characters.")
+
+        cmd = ["bd"]
+
+        if self.db_path:
+            cmd.extend(["--db", self.db_path])
+
+        cmd.extend(["comment", issue_id, text])
+
+        if author:
+            cmd.extend(["--author", author])
+
+        logger.info("Adding comment to %s", issue_id)
+        logger.debug("Command: %s", " ".join(cmd))
+
+        # Dry-run mode: print command instead of executing
+        if self.dry_run:
+            print(f"[DRY-RUN] Would execute: {' '.join(cmd)}")
+            logger.info("[DRY-RUN] Would add comment to %s", issue_id)
+            return
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired as e:
+            raise BeadsUpdateError(
+                f"Comment creation timed out after 30 seconds.\n"
+                f"Issue: {issue_id}\n"
+                f"Command: {' '.join(cmd)}",
+                command=cmd,
+            ) from e
+        except Exception as e:
+            raise BeadsUpdateError(
+                f"Unexpected error adding comment.\nIssue: {issue_id}\nError: {e}",
+                command=cmd,
+            ) from e
+
+        if result.returncode != 0:
+            error_msg = (
+                f"Failed to add comment.\n"
+                f"Issue: {issue_id}\n"
+                f"Command: {' '.join(cmd)}\n"
+                f"Exit code: {result.returncode}\n"
+                f"Error output: {result.stderr.strip() if result.stderr else '(none)'}\n"
+                f"\nSuggestion: Verify the issue ID exists (run 'bd show <issue-id>')."
+            )
+            logger.error("Comment creation failed: %s", error_msg)
+            raise BeadsUpdateError(
+                error_msg,
+                command=cmd,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                returncode=result.returncode,
+            )
+
+        logger.debug("Comment added successfully")
+
+    def get_issue(self, issue_id: str) -> dict:
+        """Get issue details in structured format.
+
+        Args:
+            issue_id: Issue ID to retrieve
+
+        Returns:
+            Dictionary containing issue data with keys like:
+            - id, title, description, status, priority, type
+            - labels, dependencies, comments, etc.
+
+        Raises:
+            ValueError: If issue_id is invalid
+            BeadsUpdateError: If retrieval fails
+
+        Example:
+            >>> issue = writer.get_issue("myproject-123")
+            >>> print(issue["title"])
+            Fix authentication bug
+            >>> print(issue["status"])
+            in_progress
+        """
+        # Validate input
+        if not issue_id or not issue_id.strip():
+            raise ValueError("Issue ID cannot be empty")
+
+        cmd = ["bd"]
+
+        if self.db_path:
+            cmd.extend(["--db", self.db_path])
+
+        cmd.extend(["show", issue_id, "--json"])
+
+        logger.info("Getting issue: %s", issue_id)
+        logger.debug("Command: %s", " ".join(cmd))
+
+        # Dry-run mode: return mock data
+        if self.dry_run:
+            print(f"[DRY-RUN] Would execute: {' '.join(cmd)}")
+            logger.info("[DRY-RUN] Would get issue %s", issue_id)
+            return {
+                "id": "dryrun-mock",
+                "title": "Mock Issue",
+                "status": "open",
+                "priority": 2,
+                "type": "task",
+            }
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired as e:
+            raise BeadsUpdateError(
+                f"Issue retrieval timed out after 30 seconds.\n"
+                f"Issue: {issue_id}\n"
+                f"Command: {' '.join(cmd)}",
+                command=cmd,
+            ) from e
+        except Exception as e:
+            raise BeadsUpdateError(
+                f"Unexpected error retrieving issue.\nIssue: {issue_id}\nError: {e}",
+                command=cmd,
+            ) from e
+
+        if result.returncode != 0:
+            error_msg = (
+                f"Failed to retrieve issue.\n"
+                f"Issue: {issue_id}\n"
+                f"Command: {' '.join(cmd)}\n"
+                f"Exit code: {result.returncode}\n"
+                f"Error output: {result.stderr.strip() if result.stderr else '(none)'}\n"
+                f"\nSuggestion: Verify the issue ID exists (run 'bd list')."
+            )
+            logger.error("Issue retrieval failed: %s", error_msg)
+            raise BeadsUpdateError(
+                error_msg,
+                command=cmd,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                returncode=result.returncode,
+            )
+
+        # Parse JSON output
+        try:
+            issue_data: dict = json.loads(result.stdout)
+            logger.debug("Retrieved issue: %s", issue_id)
+            return issue_data
+        except json.JSONDecodeError as e:
+            error_msg = (
+                f"Could not parse JSON output from bd show.\n"
+                f"Issue: {issue_id}\n"
+                f"Output: {result.stdout}\n"
+                f"Parse error: {e}\n"
+                f"\nSuggestion: This may indicate a bd CLI version incompatibility."
+            )
+            logger.error("JSON parsing failed: %s", error_msg)
+            raise BeadsUpdateError(
+                error_msg,
+                command=cmd,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                returncode=result.returncode,
+            ) from e
+
 
 class TrelloToBeadsConverter:
     """Convert Trello board to beads issues"""
