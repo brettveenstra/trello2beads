@@ -580,6 +580,28 @@ python3 trello2beads.py --status-mapping custom.json
 bd update <issue-id> --status closed
 ```
 
+### BeadsWriter Errors
+
+**"bd CLI not found"** (`BeadsCommandError`):
+- **Cause**: beads is not installed or not in PATH
+- **Fix**: Install beads from https://github.com/steveyegge/beads and ensure `bd` command works
+
+**"Failed to create issue"** (`BeadsIssueCreationError`):
+- **Cause**: Database not initialized, permission issues, or bd CLI version mismatch
+- **Fix**: Run `bd init` in your project directory, check file permissions on `.beads/`
+- If persists, update beads to latest version
+
+**"Could not parse issue ID"**:
+- **Cause**: bd CLI output format changed (after beads update)
+- **Fix**: File an issue at https://github.com/brettveenstra/trello2beads/issues with your beads version
+
+**Input validation errors** (`ValueError`):
+- `"Title cannot be empty"` - Provide a non-empty title
+- `"Invalid status: 'done'"` - Use valid status: `open`, `in_progress`, `blocked`, `deferred`, `closed`
+- `"Priority must be 0-4"` - Use integer 0-4 (0=critical, 4=backlog)
+
+All BeadsWriter exceptions include the failing command and error details to help diagnose issues.
+
 ## FAQ
 
 **Q: Does this sync changes from Trello?**

@@ -76,7 +76,24 @@ class TrelloServerError(TrelloAPIError):
 
 
 class BeadsWriterError(Exception):
-    """Base exception for BeadsWriter errors"""
+    """Base exception for all BeadsWriter errors.
+
+    Provides structured error information including the command that failed,
+    process output, and exit code for debugging.
+
+    Attributes:
+        command: The bd CLI command that was executed (if applicable)
+        stdout: Standard output from the bd CLI process
+        stderr: Standard error from the bd CLI process
+        returncode: Exit code from the bd CLI process
+
+    Example:
+        >>> try:
+        ...     writer.create_issue("")
+        ... except BeadsWriterError as e:
+        ...     print(f"Command: {e.command}")
+        ...     print(f"Error: {e.stderr}")
+    """
 
     def __init__(
         self,
@@ -94,19 +111,55 @@ class BeadsWriterError(Exception):
 
 
 class BeadsCommandError(BeadsWriterError):
-    """Raised when bd CLI is not found or not executable"""
+    """Raised when bd CLI is not found or not executable.
+
+    This typically indicates that:
+    - beads is not installed
+    - beads is not in the system PATH
+    - beads executable permissions are incorrect
+
+    Resolution:
+        Install beads from https://github.com/steveyegge/beads and ensure
+        the 'bd' command is accessible in your PATH.
+    """
 
     pass
 
 
 class BeadsIssueCreationError(BeadsWriterError):
-    """Raised when issue creation fails"""
+    """Raised when issue creation fails.
+
+    This can occur when:
+    - bd CLI returns non-zero exit code
+    - Issue ID cannot be parsed from output
+    - Parsed issue ID has invalid format
+    - Subprocess times out or crashes
+    - Database is not initialized
+
+    Resolution:
+        Check error message for specific cause. Common fixes:
+        - Run 'bd init' to initialize database
+        - Verify database permissions
+        - Update beads to latest version
+    """
 
     pass
 
 
 class BeadsUpdateError(BeadsWriterError):
-    """Raised when issue update fails"""
+    """Raised when issue status update fails.
+
+    This can occur when:
+    - Issue ID does not exist
+    - Status value is invalid
+    - bd CLI returns non-zero exit code
+    - Subprocess times out or crashes
+
+    Resolution:
+        - Verify issue ID exists (run 'bd show <issue-id>')
+        - Check status is valid (open, in_progress, blocked, deferred, closed)
+        - Verify database permissions
+    """
 
     pass
 
@@ -485,7 +538,60 @@ class TrelloReader:
 
 
 class BeadsWriter:
-    """Write issues to beads via bd CLI"""
+    """Write issues to beads issue tracking system via bd CLI wrapper.
+
+    BeadsWriter provides a Python interface to the beads command-line tool (bd),
+    enabling programmatic creation and management of beads issues. It wraps the
+    bd CLI with robust error handling, input validation, and parsing capabilities.
+
+    Architecture:
+        - Wraps bd CLI commands via subprocess calls
+        - Validates all inputs before execution
+        - Parses CLI output to extract issue IDs
+        - Provides detailed error messages with diagnostics
+        - Supports dry-run mode for testing without side effects
+
+    Key Features:
+        - Issue creation with full metadata (title, description, status, priority, type, labels)
+        - Status updates for existing issues
+        - Custom database path support for isolated environments
+        - Dry-run mode for testing and validation
+        - Comprehensive error handling with custom exception hierarchy
+        - Automatic status updates after creation
+        - Input validation with helpful error messages
+
+    Error Handling:
+        - BeadsCommandError: bd CLI not found or not executable
+        - BeadsIssueCreationError: Issue creation failed (parse errors, subprocess failures)
+        - BeadsUpdateError: Status update failed
+        - ValueError: Invalid input parameters
+
+    Example:
+        >>> writer = BeadsWriter()
+        >>> issue_id = writer.create_issue(
+        ...     title="Fix authentication bug",
+        ...     description="Users cannot log in with SSO",
+        ...     priority=0,
+        ...     issue_type="bug",
+        ...     labels=["security", "auth"]
+        ... )
+        >>> print(f"Created: {issue_id}")
+        Created: myproject-abc
+
+    Example (dry-run mode):
+        >>> writer = BeadsWriter(dry_run=True)
+        >>> issue_id = writer.create_issue("Test issue")
+        [DRY-RUN] Would execute: bd create --title Test issue ...
+        >>> print(issue_id)
+        dryrun-mock
+
+    Thread Safety:
+        Not thread-safe. Each thread should create its own BeadsWriter instance.
+
+    See Also:
+        - beads documentation: https://github.com/steveyegge/beads
+        - bd CLI reference: Run `bd --help` for command documentation
+    """
 
     def __init__(self, db_path: str | None = None, dry_run: bool = False):
         """Initialize with optional custom database path and dry-run mode
