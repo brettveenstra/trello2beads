@@ -23,6 +23,8 @@ Usage:
 For full documentation, see README.md
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
