@@ -621,8 +621,8 @@ class TestDryRunMode:
 class TestAddDependency:
     """Test add_dependency method"""
 
-    def test_add_dependency_success(self):
-        """Should add dependency successfully"""
+    def test_add_dependency_success_default_blocks(self):
+        """Should add blocking dependency by default"""
         with patch.object(BeadsWriter, "_check_bd_available"):
             writer = BeadsWriter()
 
@@ -640,6 +640,42 @@ class TestAddDependency:
                 assert "add" in cmd
                 assert "issue-123" in cmd
                 assert "issue-456" in cmd
+                assert "--type" in cmd
+                assert "blocks" in cmd
+
+    def test_add_dependency_parent_child(self):
+        """Should add parent-child dependency for epics"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "✓ Added dependency"
+            mock_result.stderr = ""
+
+            with patch("subprocess.run", return_value=mock_result) as mock_run:
+                writer.add_dependency("child-123", "parent-456", "parent-child")
+
+                cmd = mock_run.call_args[0][0]
+                assert "--type" in cmd
+                assert "parent-child" in cmd
+
+    def test_add_dependency_related(self):
+        """Should add related (non-blocking) dependency"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "✓ Added dependency"
+            mock_result.stderr = ""
+
+            with patch("subprocess.run", return_value=mock_result) as mock_run:
+                writer.add_dependency("issue-123", "issue-456", "related")
+
+                cmd = mock_run.call_args[0][0]
+                assert "--type" in cmd
+                assert "related" in cmd
 
     def test_add_dependency_with_custom_db_path(self):
         """Should include --db flag when db_path is set"""
@@ -673,6 +709,14 @@ class TestAddDependency:
 
             with pytest.raises(ValueError, match="Depends-on ID cannot be empty"):
                 writer.add_dependency("issue-123", "")
+
+    def test_add_dependency_invalid_type(self):
+        """Should raise ValueError for invalid dependency type"""
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            writer = BeadsWriter()
+
+            with pytest.raises(ValueError, match="Invalid dependency_type"):
+                writer.add_dependency("issue-123", "issue-456", "invalid-type")
 
     def test_add_dependency_subprocess_failure(self):
         """Should raise BeadsUpdateError when bd returns non-zero exit code"""

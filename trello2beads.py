@@ -1024,23 +1024,33 @@ class BeadsWriter:
 
         logger.debug("Status update successful")
 
-    def add_dependency(self, issue_id: str, depends_on_id: str) -> None:
+    def add_dependency(
+        self, issue_id: str, depends_on_id: str, dependency_type: str = "blocks"
+    ) -> None:
         """Add a dependency between two issues.
-
-        Creates a blocking dependency where issue_id depends on depends_on_id.
-        This means depends_on_id must be resolved before issue_id can be closed.
 
         Args:
             issue_id: The issue that depends on another (the dependent)
             depends_on_id: The issue that must be completed first (the dependency)
+            dependency_type: Type of dependency relationship (default: "blocks")
+                - "blocks": depends_on_id must be resolved before issue_id (blocking dependency)
+                - "parent-child": depends_on_id is parent of issue_id (epic/checklist relationship)
+                - "related": Non-blocking informational link between issues
+                - "discovered-from": Issue was discovered during work on another issue
 
         Raises:
             ValueError: If inputs are invalid
             BeadsUpdateError: If dependency creation fails
 
-        Example:
-            >>> writer.add_dependency("myproject-123", "myproject-456")
-            # myproject-123 now depends on myproject-456
+        Examples:
+            >>> # Blocking dependency: Feature depends on API being ready
+            >>> writer.add_dependency("feature-123", "api-456", "blocks")
+
+            >>> # Parent-child: Checklist item belongs to epic
+            >>> writer.add_dependency("checklist-item-789", "epic-123", "parent-child")
+
+            >>> # Related: Cards reference each other (non-blocking)
+            >>> writer.add_dependency("card-abc", "card-xyz", "related")
         """
         # Validate inputs
         if not issue_id or not issue_id.strip():
@@ -1049,14 +1059,21 @@ class BeadsWriter:
         if not depends_on_id or not depends_on_id.strip():
             raise ValueError("Depends-on ID cannot be empty")
 
+        valid_types = {"blocks", "related", "parent-child", "discovered-from"}
+        if dependency_type not in valid_types:
+            raise ValueError(
+                f"Invalid dependency_type: '{dependency_type}'. "
+                f"Must be one of: {sorted(valid_types)}"
+            )
+
         cmd = ["bd"]
 
         if self.db_path:
             cmd.extend(["--db", self.db_path])
 
-        cmd.extend(["dep", "add", issue_id, depends_on_id])
+        cmd.extend(["dep", "add", issue_id, depends_on_id, "--type", dependency_type])
 
-        logger.info("Adding dependency: %s depends on %s", issue_id, depends_on_id)
+        logger.info("Adding %s dependency: %s → %s", dependency_type, issue_id, depends_on_id)
         logger.debug("Command: %s", " ".join(cmd))
 
         # Dry-run mode: print command instead of executing
