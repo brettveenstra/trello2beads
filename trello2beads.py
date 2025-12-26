@@ -1642,15 +1642,8 @@ class TrelloToBeadsConverter:
             if card.get("desc"):
                 desc_parts.append(card["desc"])
 
-            # Add checklists
-            if card.get("checklists"):
-                desc_parts.append("\n## Checklists\n")
-                for checklist in card["checklists"]:
-                    desc_parts.append(f"### {checklist['name']}\n")
-                    for item in checklist.get("checkItems", []):
-                        status_mark = "✓" if item["state"] == "complete" else "☐"
-                        desc_parts.append(f"- [{status_mark}] {item['name']}")
-                    desc_parts.append("")
+            # Determine if card has checklists (will become epic with children)
+            has_checklists = bool(card.get("checklists"))
 
             # Add attachments
             if card.get("attachments"):
@@ -1668,21 +1661,29 @@ class TrelloToBeadsConverter:
 
             description = "\n".join(desc_parts)
 
+            # Determine issue type based on checklists
+            issue_type = "epic" if has_checklists else "task"
+
             if dry_run:
                 print("[DRY RUN] Would create:")
                 print(f"  Title: {card['name']}")
+                print(f"  Type: {issue_type}")
                 print(f"  Status: {status}")
                 print(f"  List: {list_name}")
                 print(f"  Labels: {', '.join(labels)}")
+                if has_checklists:
+                    total_items = sum(len(cl.get("checkItems", [])) for cl in card["checklists"])
+                    print(f"  Children: {total_items} checklist items")
                 print()
             else:
                 try:
+                    # Create parent issue (epic if has checklists, task otherwise)
                     issue_id = self.beads.create_issue(
                         title=card["name"],
                         description=description,
                         status=status,
                         priority=2,
-                        issue_type="task",
+                        issue_type=issue_type,
                         labels=labels,
                         external_ref=external_ref,
                     )
@@ -1692,8 +1693,59 @@ class TrelloToBeadsConverter:
                     self.card_url_map[card["shortUrl"]] = issue_id
                     self.card_url_map[card["shortLink"]] = issue_id
 
-                    print(f"✅ Created {issue_id}: {card['name']} (list:{list_name})")
+                    if has_checklists:
+                        print(f"✅ Created {issue_id}: {card['name']} (epic, list:{list_name})")
+                    else:
+                        print(f"✅ Created {issue_id}: {card['name']} (list:{list_name})")
                     created_count += 1
+
+                    # Create child issues for checklist items
+                    if has_checklists:
+                        for checklist in card["checklists"]:
+                            checklist_name = checklist.get("name", "Checklist")
+                            for item in checklist.get("checkItems", []):
+                                item_name = item["name"]
+                                item_state = item.get("state", "incomplete")
+
+                                # Determine child status based on completion
+                                child_status = "closed" if item_state == "complete" else "open"
+
+                                # Create child issue title with checklist context
+                                child_title = f"{item_name}"
+                                if len(card["checklists"]) > 1:
+                                    # Multiple checklists - add checklist name for clarity
+                                    child_title = f"[{checklist_name}] {item_name}"
+
+                                # Child description references parent epic
+                                child_desc = (
+                                    f"Part of epic: {card['name']}\nChecklist: {checklist_name}"
+                                )
+
+                                try:
+                                    child_id = self.beads.create_issue(
+                                        title=child_title,
+                                        description=child_desc,
+                                        status=child_status,
+                                        priority=2,
+                                        issue_type="task",
+                                        labels=[f"epic:{issue_id}", f"list:{list_name}"],
+                                        external_ref=f"{external_ref}:checklist-item",
+                                    )
+
+                                    # Add parent-child dependency
+                                    self.beads.add_dependency(child_id, issue_id, "parent-child")
+
+                                    status_icon = "✓" if item_state == "complete" else "☐"
+                                    print(f"  └─ {status_icon} Created {child_id}: {item_name}")
+                                    created_count += 1
+
+                                except Exception as e:
+                                    logger.warning(
+                                        "Failed to create child issue for checklist item '%s': %s",
+                                        item_name,
+                                        e,
+                                    )
+
                 except Exception as e:
                     print(f"❌ Failed to create '{card['name']}': {e}")
 

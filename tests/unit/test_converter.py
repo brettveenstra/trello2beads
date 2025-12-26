@@ -429,7 +429,7 @@ class TestDescriptionBuilding:
     """Test description building with checklists and attachments"""
 
     def test_convert_card_with_checklists(self):
-        """Should embed checklists in description (markdown format)"""
+        """Should convert card with checklist to epic with child issues"""
         mock_trello = MagicMock(spec=TrelloReader)
         mock_trello.get_board.return_value = {
             "id": "board123",
@@ -459,6 +459,7 @@ class TestDescriptionBuilding:
                 "attachments": [],
             }
         ]
+        mock_trello.get_card_comments.return_value = []
 
         with patch.object(BeadsWriter, "_check_bd_available"):
             mock_beads = BeadsWriter(dry_run=True)
@@ -472,20 +473,34 @@ class TestDescriptionBuilding:
             created_issues.append({"id": issue_id, **kwargs})
             return issue_id
 
-        with patch.object(converter.beads, "create_issue", side_effect=mock_create_issue):
+        with (
+            patch.object(converter.beads, "create_issue", side_effect=mock_create_issue),
+            patch.object(converter.beads, "add_dependency"),
+        ):
             converter.convert()
 
-        # Verify checklist was embedded in description
-        assert len(created_issues) == 1
-        desc = created_issues[0]["description"]
+        # Should create 1 epic + 2 child tasks = 3 issues
+        assert len(created_issues) == 3
 
-        assert "Main description" in desc
-        assert "## Checklists" in desc
-        assert "### Setup" in desc
-        assert "Install dependencies" in desc
-        assert "Configure settings" in desc
-        assert "✓" in desc  # Complete marker
-        assert "☐" in desc  # Incomplete marker
+        # First issue should be the epic
+        epic = created_issues[0]
+        assert epic["issue_type"] == "epic"
+        assert epic["title"] == "Card with Checklist"
+        assert "Main description" in epic["description"]
+        # Checklist should NOT be in description anymore
+        assert "## Checklists" not in epic["description"]
+
+        # Second issue should be completed child task
+        child1 = created_issues[1]
+        assert child1["issue_type"] == "task"
+        assert child1["title"] == "Install dependencies"
+        assert child1["status"] == "closed"  # complete
+
+        # Third issue should be incomplete child task
+        child2 = created_issues[2]
+        assert child2["issue_type"] == "task"
+        assert child2["title"] == "Configure settings"
+        assert child2["status"] == "open"  # incomplete
 
     def test_convert_card_with_attachments(self):
         """Should embed attachments in description"""
@@ -706,3 +721,212 @@ class TestErrorHandling:
 
         # Should have created 2 issues (card1 and card3), skipped card2
         assert created_count[0] == 2
+
+
+class TestChecklistToEpicConversion:
+    """Test checklist-to-epic conversion functionality"""
+
+    def test_card_with_checklist_becomes_epic(self):
+        """Should convert card with checklist to epic with child issues"""
+        # Setup mocks
+        mock_trello = MagicMock(spec=TrelloReader)
+        mock_trello.get_board.return_value = {
+            "id": "board123",
+            "name": "Test Board",
+            "url": "https://trello.com/b/abc123",
+        }
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
+        mock_trello.get_cards.return_value = [
+            {
+                "id": "card1",
+                "name": "Epic Card",
+                "desc": "Card with checklist",
+                "idList": "list1",
+                "pos": 1000,
+                "shortLink": "abc",
+                "shortUrl": "https://trello.com/c/abc",
+                "labels": [],
+                "checklists": [
+                    {
+                        "id": "checklist1",
+                        "name": "Tasks",
+                        "checkItems": [
+                            {"id": "item1", "name": "First task", "state": "incomplete"},
+                            {"id": "item2", "name": "Second task", "state": "complete"},
+                            {"id": "item3", "name": "Third task", "state": "incomplete"},
+                        ],
+                    }
+                ],
+                "attachments": [],
+            }
+        ]
+        mock_trello.get_card_comments.return_value = []
+
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            mock_beads = BeadsWriter(dry_run=True)
+
+        converter = TrelloToBeadsConverter(mock_trello, mock_beads)
+
+        # Track create_issue calls
+        created_issues = []
+        issue_counter = [0]
+
+        def mock_create_issue(**kwargs):
+            issue_counter[0] += 1
+            issue_id = f"test-{issue_counter[0]}"
+            created_issues.append({"id": issue_id, **kwargs})
+            return issue_id
+
+        # Track add_dependency calls
+        dependencies = []
+
+        def mock_add_dependency(child_id, parent_id, dep_type):
+            dependencies.append({"child": child_id, "parent": parent_id, "type": dep_type})
+
+        with (
+            patch.object(converter.beads, "create_issue", side_effect=mock_create_issue),
+            patch.object(converter.beads, "add_dependency", side_effect=mock_add_dependency),
+        ):
+            converter.convert()
+
+        # Should create 4 issues: 1 epic + 3 child tasks
+        assert len(created_issues) == 4
+
+        # First issue should be epic
+        epic_issue = created_issues[0]
+        assert epic_issue["issue_type"] == "epic"
+        assert epic_issue["title"] == "Epic Card"
+
+        # Next 3 should be child tasks
+        assert created_issues[1]["issue_type"] == "task"
+        assert created_issues[1]["title"] == "First task"
+        assert created_issues[1]["status"] == "open"  # incomplete
+
+        assert created_issues[2]["issue_type"] == "task"
+        assert created_issues[2]["title"] == "Second task"
+        assert created_issues[2]["status"] == "closed"  # complete
+
+        assert created_issues[3]["issue_type"] == "task"
+        assert created_issues[3]["title"] == "Third task"
+        assert created_issues[3]["status"] == "open"  # incomplete
+
+        # Should have 3 parent-child dependencies
+        assert len(dependencies) == 3
+        for dep in dependencies:
+            assert dep["type"] == "parent-child"
+            assert dep["parent"] == "test-1"  # Epic is first issue
+
+        # Child issues should have epic label
+        assert "epic:test-1" in created_issues[1]["labels"]
+        assert "epic:test-1" in created_issues[2]["labels"]
+        assert "epic:test-1" in created_issues[3]["labels"]
+
+    def test_card_without_checklist_remains_task(self):
+        """Should keep cards without checklists as task type"""
+        mock_trello = MagicMock(spec=TrelloReader)
+        mock_trello.get_board.return_value = {
+            "id": "board123",
+            "name": "Test Board",
+            "url": "https://trello.com/b/abc123",
+        }
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
+        mock_trello.get_cards.return_value = [
+            {
+                "id": "card1",
+                "name": "Regular Card",
+                "desc": "No checklist",
+                "idList": "list1",
+                "pos": 1000,
+                "shortLink": "abc",
+                "shortUrl": "https://trello.com/c/abc",
+                "labels": [],
+                "checklists": [],
+                "attachments": [],
+            }
+        ]
+        mock_trello.get_card_comments.return_value = []
+
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            mock_beads = BeadsWriter(dry_run=True)
+
+        converter = TrelloToBeadsConverter(mock_trello, mock_beads)
+
+        created_issues = []
+
+        def mock_create_issue(**kwargs):
+            issue_id = f"test-{len(created_issues)}"
+            created_issues.append({"id": issue_id, **kwargs})
+            return issue_id
+
+        with patch.object(converter.beads, "create_issue", side_effect=mock_create_issue):
+            converter.convert()
+
+        # Should create 1 task
+        assert len(created_issues) == 1
+        assert created_issues[0]["issue_type"] == "task"
+        assert created_issues[0]["title"] == "Regular Card"
+
+    def test_multiple_checklists_adds_context(self):
+        """Should add checklist name to child titles when multiple checklists exist"""
+        mock_trello = MagicMock(spec=TrelloReader)
+        mock_trello.get_board.return_value = {
+            "id": "board123",
+            "name": "Test Board",
+            "url": "https://trello.com/b/abc123",
+        }
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
+        mock_trello.get_cards.return_value = [
+            {
+                "id": "card1",
+                "name": "Multi-checklist Card",
+                "desc": "Two checklists",
+                "idList": "list1",
+                "pos": 1000,
+                "shortLink": "abc",
+                "shortUrl": "https://trello.com/c/abc",
+                "labels": [],
+                "checklists": [
+                    {
+                        "id": "checklist1",
+                        "name": "Backend",
+                        "checkItems": [
+                            {"id": "item1", "name": "API endpoint", "state": "incomplete"}
+                        ],
+                    },
+                    {
+                        "id": "checklist2",
+                        "name": "Frontend",
+                        "checkItems": [
+                            {"id": "item2", "name": "UI component", "state": "incomplete"}
+                        ],
+                    },
+                ],
+                "attachments": [],
+            }
+        ]
+        mock_trello.get_card_comments.return_value = []
+
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            mock_beads = BeadsWriter(dry_run=True)
+
+        converter = TrelloToBeadsConverter(mock_trello, mock_beads)
+
+        created_issues = []
+
+        def mock_create_issue(**kwargs):
+            issue_id = f"test-{len(created_issues)}"
+            created_issues.append({"id": issue_id, **kwargs})
+            return issue_id
+
+        with (
+            patch.object(converter.beads, "create_issue", side_effect=mock_create_issue),
+            patch.object(converter.beads, "add_dependency"),
+        ):
+            converter.convert()
+
+        # Should create 1 epic + 2 child tasks
+        assert len(created_issues) == 3
+
+        # Child titles should include checklist names
+        assert created_issues[1]["title"] == "[Backend] API endpoint"
+        assert created_issues[2]["title"] == "[Frontend] UI component"
