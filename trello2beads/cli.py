@@ -36,6 +36,9 @@ Usage:
     # Use custom status mapping
     python3 -m trello2beads --status-mapping custom_mapping.json
 
+    # Enable parallel execution for faster conversion (large boards)
+    python3 -m trello2beads --max-workers 5
+
 For full documentation, see README.md
 """
 
@@ -119,6 +122,29 @@ def main() -> None:
     dry_run = "--dry-run" in sys.argv or "-n" in sys.argv
     use_snapshot = "--use-snapshot" in sys.argv
 
+    # Parse --max-workers flag (default: 1 for serial execution)
+    max_workers = 1  # Serial execution by default (safe, backward compatible)
+    if "--max-workers" in sys.argv:
+        idx = sys.argv.index("--max-workers")
+        if idx + 1 >= len(sys.argv):
+            logger.error("❌ Error: --max-workers requires a number")
+            logger.error("Usage: --max-workers N (e.g., --max-workers 5)")
+            sys.exit(1)
+
+        try:
+            max_workers = int(sys.argv[idx + 1])
+            if max_workers < 1:
+                logger.error("❌ Error: --max-workers must be at least 1")
+                sys.exit(1)
+            if max_workers > 1:
+                logger.info(
+                    f"⚡ Parallel mode enabled: {max_workers} workers "
+                    "(experimental - may cause issues on some systems)"
+                )
+        except ValueError:
+            logger.error(f"❌ Error: --max-workers must be a number, got: {sys.argv[idx + 1]}")
+            sys.exit(1)
+
     # Parse --status-mapping flag
     custom_status_keywords = None
     if "--status-mapping" in sys.argv:
@@ -177,6 +203,7 @@ def main() -> None:
             snapshot_path=snapshot_path
             if use_snapshot
             else snapshot_path,  # Always save/use snapshot
+            max_workers=max_workers,
         )
     except Exception as e:
         logger.error(f"❌ Conversion failed: {e}")

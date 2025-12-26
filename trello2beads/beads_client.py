@@ -426,6 +426,141 @@ class BeadsWriter:
 
         return issue_id
 
+    def batch_create_issues(
+        self,
+        issues: list[dict],
+        max_workers: int = 1,
+        show_progress: bool = True,
+    ) -> list[str | None]:
+        """Create multiple issues in parallel for better performance.
+
+        Uses ThreadPoolExecutor to run multiple subprocess calls concurrently,
+        reducing total conversion time for large boards (100+ cards).
+
+        Args:
+            issues: List of issue dicts with keys: title, description, status,
+                    priority, issue_type, labels, external_ref (all optional except title)
+            max_workers: Number of parallel subprocess workers (default: 1 for serial)
+                        Use 5-10 for parallel execution on large boards (experimental)
+            show_progress: Show progress indicator for large batches (default: True)
+
+        Returns:
+            List of issue IDs (same order as input). None for failed creations.
+
+        Example:
+            >>> issues = [
+            ...     {"title": "Task 1", "status": "open", "priority": 2},
+            ...     {"title": "Task 2", "status": "closed", "priority": 1},
+            ... ]
+            >>> ids = beads.batch_create_issues(issues)
+            >>> # ['proj-abc', 'proj-def']
+
+        Note:
+            max_workers=1 uses serial execution (safe default).
+            max_workers>1 uses parallel execution (faster but experimental).
+            Individual issue failures don't break the entire batch.
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        if not issues:
+            return []
+
+        # Define results list at function level for type consistency
+        results: list[str | None]
+
+        # Serial execution for max_workers=1 (cleaner than ThreadPoolExecutor with 1 worker)
+        if max_workers == 1:
+            results = []
+            for i, issue in enumerate(issues, 1):
+                try:
+                    issue_id = self.create_issue(
+                        title=issue["title"],
+                        description=issue.get("description", ""),
+                        status=issue.get("status", "open"),
+                        priority=issue.get("priority", 2),
+                        issue_type=issue.get("issue_type", "task"),
+                        labels=issue.get("labels"),
+                        external_ref=issue.get("external_ref"),
+                    )
+                    results.append(issue_id)
+
+                    if show_progress and len(issues) > 10 and i % 10 == 0:
+                        logger.info(f"  Progress: {i}/{len(issues)} issues created")
+                except Exception as e:
+                    logger.warning(f"Failed to create issue '{issue.get('title')}': {e}")
+                    results.append(None)
+
+            if show_progress and len(issues) > 10:
+                logger.info(f"  Progress: {len(issues)}/{len(issues)} issues created (complete)")
+
+            return results
+
+        # Pre-allocate results list to preserve order (parallel execution)
+        results = [None] * len(issues)
+
+        def create_with_index(index: int, issue: dict) -> tuple[int, str | None]:
+            """Create issue and return (index, issue_id) tuple."""
+            try:
+                # Extract parameters with defaults
+                issue_id = self.create_issue(
+                    title=issue["title"],
+                    description=issue.get("description", ""),
+                    status=issue.get("status", "open"),
+                    priority=issue.get("priority", 2),
+                    issue_type=issue.get("issue_type", "task"),
+                    labels=issue.get("labels"),
+                    external_ref=issue.get("external_ref"),
+                )
+                return (index, issue_id)
+            except Exception as e:
+                logger.warning(f"Failed to create issue '{issue.get('title')}': {e}")
+                return (index, None)
+
+        try:
+            # Parallel execution
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tasks
+                futures = [
+                    executor.submit(create_with_index, i, issue) for i, issue in enumerate(issues)
+                ]
+
+                # Collect results with optional progress indicator
+                completed = 0
+                for future in as_completed(futures):
+                    idx: int
+                    result_id: str | None
+                    idx, result_id = future.result()
+                    results[idx] = result_id
+                    completed += 1
+
+                    if show_progress and len(issues) > 10 and completed % 10 == 0:
+                        logger.info(f"  Progress: {completed}/{len(issues)} issues created")
+
+            # Final progress update
+            if show_progress and len(issues) > 10:
+                logger.info(f"  Progress: {completed}/{len(issues)} issues created (complete)")
+
+        except Exception as e:
+            # Fallback to serial creation if parallel execution fails
+            logger.warning(f"Batch creation failed ({e}), falling back to serial...")
+            results = []
+            for issue in issues:
+                try:
+                    issue_id = self.create_issue(
+                        title=issue["title"],
+                        description=issue.get("description", ""),
+                        status=issue.get("status", "open"),
+                        priority=issue.get("priority", 2),
+                        issue_type=issue.get("issue_type", "task"),
+                        labels=issue.get("labels"),
+                        external_ref=issue.get("external_ref"),
+                    )
+                    results.append(issue_id)
+                except Exception:
+                    results.append(None)
+
+        return results
+
     def update_status(self, issue_id: str, status: str) -> None:
         """Update issue status
 
