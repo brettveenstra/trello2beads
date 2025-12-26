@@ -39,7 +39,7 @@ jobs:
           ruff format --check .
 
       - name: Type check with mypy
-        run: mypy trello2beads.py
+        run: mypy trello2beads/
 
       - name: Run tests with pytest
         run: |
@@ -50,7 +50,7 @@ jobs:
           coverage report --fail-under=75
 
       - name: Security scan with bandit
-        run: bandit -r trello2beads.py tests/ -ll
+        run: bandit -r trello2beads/ tests/ -ll
 
       - name: Dependency security check
         run: pip-audit
