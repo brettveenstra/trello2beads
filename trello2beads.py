@@ -1356,16 +1356,68 @@ class TrelloToBeadsConverter:
         # Default to open (safe)
         return "open"
 
+    def _add_resolved_comments(self, card_id: str, beads_id: str) -> int:
+        """Add Trello comments to beads issue with URL resolution.
+
+        Args:
+            card_id: Trello card ID
+            beads_id: Beads issue ID to add comments to
+
+        Returns:
+            Number of comments successfully added
+        """
+        comments = self.card_comments.get(card_id, [])
+        if not comments:
+            return 0
+
+        added_count = 0
+
+        # Regex pattern for Trello card URLs
+        trello_url_pattern = re.compile(r"(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?")
+
+        # Add comments in chronological order (Trello API returns newest first, so reverse)
+        for comment in reversed(comments):
+            author = comment.get("memberCreator", {}).get("fullName", "Unknown")
+            date = comment.get("date", "")[:10]  # YYYY-MM-DD
+            text = comment["data"]["text"]
+
+            # Resolve Trello URLs in comment text
+            resolved_text = text
+            matches = trello_url_pattern.finditer(text)
+            for match in matches:
+                full_url = match.group(0)
+                short_link = match.group(1)
+                target_beads_id = self.card_url_map.get(short_link)
+
+                if target_beads_id:
+                    beads_ref = f"See {target_beads_id}"
+                    resolved_text = resolved_text.replace(full_url, beads_ref)
+
+            # Format comment with timestamp
+            comment_text = f"[{date}] {resolved_text}"
+
+            try:
+                self.beads.add_comment(beads_id, comment_text, author=author)
+                added_count += 1
+            except Exception as e:
+                logger.warning("Failed to add comment to %s: %s", beads_id, e)
+
+        return added_count
+
     def _resolve_card_references(
         self, cards: list[dict], comments_by_card: dict[str, list[dict]]
-    ) -> int:
+    ) -> tuple[int, int]:
         """
-        Second pass: Find Trello card URLs in descriptions/attachments/comments
-        and replace with beads issue references
+        Second pass: Find Trello card URLs in descriptions/attachments
+        and replace with beads issue references. Also add comments as beads comments.
+
+        Returns:
+            tuple: (resolved_count, comments_added_count)
         """
         import re
 
         resolved_count = 0
+        total_comments_added = 0
 
         # Regex patterns for Trello card URLs
         # Matches: https://trello.com/c/abc123 or trello.com/c/abc123/card-name
@@ -1398,32 +1450,11 @@ class TrelloToBeadsConverter:
                     replacements_made = True
                     print(f"  ✓ Resolved {short_link} → {target_beads_id} in description")
 
-            # Process comments for Trello URLs
-            card_comments = comments_by_card.get(card["id"], [])
-            updated_comments = []
-
-            for comment in card_comments:
-                comment_text = comment["data"]["text"]
-                updated_text = comment_text
-
-                # Find and replace Trello URLs in comment
-                matches = trello_url_pattern.finditer(comment_text)
-                for match in matches:
-                    full_url = match.group(0)
-                    short_link = match.group(1)
-                    target_beads_id = self.card_url_map.get(short_link)
-
-                    if target_beads_id:
-                        beads_ref = f"See {target_beads_id}"
-                        updated_text = updated_text.replace(full_url, beads_ref)
-                        replacements_made = True
-                        print(f"  ✓ Resolved {short_link} → {target_beads_id} in comment")
-
-                # Store updated comment
-                updated_comment = comment.copy()
-                updated_comment["data"] = comment["data"].copy()
-                updated_comment["data"]["text"] = updated_text
-                updated_comments.append(updated_comment)
+            # Add comments as actual beads comments (with URL resolution)
+            comments_added = self._add_resolved_comments(card["id"], beads_id)
+            if comments_added > 0:
+                total_comments_added += comments_added
+                print(f"  ✓ Added {comments_added} comment(s) to {beads_id}")
 
             # Also check attachments for Trello card links
             attachment_refs = []
@@ -1476,25 +1507,13 @@ class TrelloToBeadsConverter:
                     for ref in attachment_refs:
                         desc_parts.append(f"- **{ref['name']}**: See {ref['beads_id']}\n")
 
-                # Add comments (with resolved URLs if changed)
-                if updated_comments:
-                    desc_parts.append("\n## Comments\n")
-                    for comment in reversed(updated_comments):  # Oldest first
-                        author = comment.get("memberCreator", {}).get("fullName", "Unknown")
-                        date = comment.get("date", "")[:10]
-                        text = comment["data"]["text"]
-
-                        desc_parts.append(f"**{author}** ({date}):")
-                        desc_parts.append(f"> {text}")
-                        desc_parts.append("")
-
                 full_description = "\n".join(desc_parts)
 
                 # Update the beads issue description
                 self._update_description(beads_id, full_description)
                 resolved_count += 1
 
-        return resolved_count
+        return resolved_count, total_comments_added
 
     def _update_description(self, issue_id: str, new_description: str) -> None:
         """Update beads issue description"""
@@ -1521,6 +1540,7 @@ class TrelloToBeadsConverter:
         self.list_map: dict[str, str] = {}  # Trello list ID -> name
         self.trello_to_beads: dict[str, str] = {}  # Trello card ID -> beads issue ID
         self.card_url_map: dict[str, str] = {}  # Trello short URL -> beads issue ID
+        self.card_comments: dict[str, list[dict]] = {}  # Trello card ID -> list of comment dicts
 
         # Use custom keywords or fall back to class defaults
         self.status_keywords = (
@@ -1587,6 +1607,13 @@ class TrelloToBeadsConverter:
         for lst in lists:
             self.list_map[lst["id"]] = lst["name"]
 
+        # Log list-to-status mapping
+        print("📋 List → Status Mapping:")
+        for lst in lists:
+            status = self.list_to_status(lst["name"])
+            print(f"   '{lst['name']}' → {status}")
+        print()
+
         # Sort cards by position
         cards_sorted = sorted(cards, key=lambda c: (c["idList"], c.get("pos", 0)))
 
@@ -1634,21 +1661,10 @@ class TrelloToBeadsConverter:
                     )
                 desc_parts.append("")
 
-            # Add comments
+            # Store comments for second pass (will be added as real beads comments after URL resolution)
             card_comments = comments_by_card.get(card["id"], [])
             if card_comments:
-                desc_parts.append("\n## Comments\n")
-                for comment in reversed(card_comments):  # Reverse to show oldest first
-                    author = comment.get("memberCreator", {}).get("fullName", "Unknown")
-                    date = comment.get("date", "")[:10]  # YYYY-MM-DD
-                    text = comment["data"]["text"]
-
-                    desc_parts.append(f"**{author}** ({date}):")
-                    desc_parts.append(f"> {text}")
-                    desc_parts.append("")
-
-            # Store Trello URL for potential reference resolution (second pass)
-            # Don't add to description yet - will be resolved in pass 2
+                self.card_comments[card["id"]] = card_comments
 
             description = "\n".join(desc_parts)
 
@@ -1681,12 +1697,16 @@ class TrelloToBeadsConverter:
                 except Exception as e:
                     print(f"❌ Failed to create '{card['name']}': {e}")
 
-        # SECOND PASS: Resolve Trello card references (if not dry run)
+        # SECOND PASS: Resolve Trello card references and add comments (if not dry run)
+        comments_added = 0
         if not dry_run and self.trello_to_beads:
             print()
-            print("🔄 Pass 2: Resolving Trello card references...")
-            resolved_count = self._resolve_card_references(cards_sorted, comments_by_card)
+            print("🔄 Pass 2: Resolving Trello card references and adding comments...")
+            resolved_count, comments_added = self._resolve_card_references(
+                cards_sorted, comments_by_card
+            )
             print(f"✅ Resolved {resolved_count} Trello card references")
+            print(f"✅ Added {comments_added} comments to beads issues")
 
         # Summary report
         print()
@@ -1707,13 +1727,14 @@ class TrelloToBeadsConverter:
             attachments_count = sum(1 for c in cards if c.get("attachments"))
             labels_count = sum(1 for c in cards if c.get("labels"))
             comments_count = len(comments_by_card)
-            total_comments = sum(len(comments) for comments in comments_by_card.values())
 
             print("\nPreserved Features:")
             print(f"  Checklists: {checklists_count} cards")
             print(f"  Attachments: {attachments_count} cards")
             print(f"  Labels: {labels_count} cards")
-            print(f"  Comments: {comments_count} cards ({total_comments} total comments)")
+            print(
+                f"  Comments: {comments_added} added as beads comments (from {comments_count} cards)"
+            )
 
             print("\nStatus Distribution:")
             status_counts: dict[str, int] = {}

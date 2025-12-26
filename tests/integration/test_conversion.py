@@ -61,6 +61,18 @@ def mock_bd_cli():
                 # Mock update command
                 result.stdout = f"✓ Updated issue: {cmd[2]}\n"
 
+            elif cmd[1] == "comment":
+                # Mock comment command: bd comment <issue-id> <text> --author <author>
+                comment_data = {"_type": "comment", "issue_id": cmd[2]}
+                if len(cmd) > 3:
+                    comment_data["text"] = cmd[3]
+                # Find --author flag
+                for i, arg in enumerate(cmd):
+                    if arg == "--author" and i + 1 < len(cmd):
+                        comment_data["author"] = cmd[i + 1]
+                created_issues.append(comment_data)
+                result.stdout = f"✓ Added comment to {cmd[2]}\n"
+
         return result
 
     with patch("subprocess.run", side_effect=mock_subprocess_run):
@@ -171,7 +183,7 @@ class TestBoardWithComments:
 
     @responses.activate
     def test_comments_preserved(self, board_with_comments_fixture, mock_bd_cli):
-        """Test that comments are preserved in issue descriptions"""
+        """Test that comments are added as real beads comments"""
 
         # Mock Trello API endpoints
         board_data = board_with_comments_fixture["board"]
@@ -220,22 +232,35 @@ class TestBoardWithComments:
             snapshot_path = Path(tmpdir) / "snapshot.json"
             converter.convert(dry_run=False, snapshot_path=str(snapshot_path))
 
-            # Verify correct number of issues created
-            assert len(mock_bd_cli) == len(cards_data)
+            # Verify correct number of issues created (filter out comments)
+            issues = [i for i in mock_bd_cli if i.get("_type") != "comment"]
+            assert len(issues) == len(cards_data)
 
             # Find the card with comments in mock_bd_cli
-            dark_mode_issue = next(
-                (i for i in mock_bd_cli if "Dark Mode" in i.get("title", "")), None
-            )
+            dark_mode_issue = next((i for i in issues if "Dark Mode" in i.get("title", "")), None)
             assert dark_mode_issue is not None, "Dark Mode issue not found"
 
-            # Verify comment content is in description
+            # Verify comments are NOT in description (they're real beads comments now)
             description = dark_mode_issue.get("description", "")
-            assert "Alice Developer" in description
-            assert "CSS variables" in description
-            assert "Bob Designer" in description
-            assert "next sprint" in description
-            assert "## Comments" in description
+            assert "## Comments" not in description
+
+            # Verify comments were added as real beads comments
+            # Check that comment commands were issued
+            comment_commands = [cmd for cmd in mock_bd_cli if cmd.get("_type") == "comment"]
+            assert len(comment_commands) == 3  # Total comments across all cards
+
+            # Verify Dark Mode card has 2 comments
+            dark_mode_comments = [
+                cmd for cmd in comment_commands if cmd.get("issue_id") == "testproject-001"
+            ]
+            assert len(dark_mode_comments) == 2
+
+            # Verify comment content
+            dark_mode_comment_texts = [cmd.get("text", "") for cmd in dark_mode_comments]
+            assert any("Alice Developer" in cmd.get("author", "") for cmd in dark_mode_comments)
+            assert any("Bob Designer" in cmd.get("author", "") for cmd in dark_mode_comments)
+            assert any("CSS variables" in text for text in dark_mode_comment_texts)
+            assert any("next sprint" in text for text in dark_mode_comment_texts)
 
 
 class TestBoardWithReferences:
@@ -292,8 +317,9 @@ class TestBoardWithReferences:
             snapshot_path = Path(tmpdir) / "snapshot.json"
             converter.convert(dry_run=False, snapshot_path=str(snapshot_path))
 
-            # Verify correct number of cards created
-            assert len(mock_bd_cli) == 3
+            # Verify correct number of cards created (filter out comments)
+            issues = [i for i in mock_bd_cli if i.get("_type") != "comment"]
+            assert len(issues) == 3
 
 
 class TestEmptyBoard:

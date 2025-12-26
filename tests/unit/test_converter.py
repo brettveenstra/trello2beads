@@ -71,9 +71,7 @@ class TestBasicCardConversion:
             "name": "Test Board",
             "url": "https://trello.com/b/abc123",
         }
-        mock_trello.get_lists.return_value = [
-            {"id": "list1", "name": "To Do", "pos": 1000}
-        ]
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
         mock_trello.get_cards.return_value = [
             {
                 "id": "card1",
@@ -125,9 +123,7 @@ class TestBasicCardConversion:
             "name": "Test Board",
             "url": "https://trello.com/b/abc123",
         }
-        mock_trello.get_lists.return_value = [
-            {"id": "list1", "name": "Doing", "pos": 1000}
-        ]
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "Doing", "pos": 1000}]
         mock_trello.get_cards.return_value = [
             {
                 "id": "card1",
@@ -263,9 +259,7 @@ class TestBasicCardConversion:
             "name": "Test Board",
             "url": "https://trello.com/b/abc123",
         }
-        mock_trello.get_lists.return_value = [
-            {"id": "list1", "name": "To Do", "pos": 1000}
-        ]
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
         mock_trello.get_cards.return_value = [
             {
                 "id": "card1",
@@ -309,9 +303,7 @@ class TestDryRunMode:
             "name": "Test Board",
             "url": "https://trello.com/b/abc123",
         }
-        mock_trello.get_lists.return_value = [
-            {"id": "list1", "name": "To Do", "pos": 1000}
-        ]
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
         mock_trello.get_cards.return_value = [
             {
                 "id": "card1",
@@ -352,9 +344,7 @@ class TestSnapshotHandling:
             "name": "Test Board",
             "url": "https://trello.com/b/abc123",
         }
-        mock_trello.get_lists.return_value = [
-            {"id": "list1", "name": "To Do", "pos": 1000}
-        ]
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
         mock_trello.get_cards.return_value = [
             {
                 "id": "card1",
@@ -446,9 +436,7 @@ class TestDescriptionBuilding:
             "name": "Test Board",
             "url": "https://trello.com/b/abc123",
         }
-        mock_trello.get_lists.return_value = [
-            {"id": "list1", "name": "To Do", "pos": 1000}
-        ]
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
         mock_trello.get_cards.return_value = [
             {
                 "id": "card1",
@@ -507,9 +495,7 @@ class TestDescriptionBuilding:
             "name": "Test Board",
             "url": "https://trello.com/b/abc123",
         }
-        mock_trello.get_lists.return_value = [
-            {"id": "list1", "name": "To Do", "pos": 1000}
-        ]
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
         mock_trello.get_cards.return_value = [
             {
                 "id": "card1",
@@ -573,9 +559,7 @@ class TestCommentFetching:
             "name": "Test Board",
             "url": "https://trello.com/b/abc123",
         }
-        mock_trello.get_lists.return_value = [
-            {"id": "list1", "name": "To Do", "pos": 1000}
-        ]
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
         mock_trello.get_cards.return_value = [
             {
                 "id": "card1",
@@ -591,18 +575,19 @@ class TestCommentFetching:
                 "badges": {"comments": 2},  # Has comments
             }
         ]
+        # Trello API returns comments newest first
         mock_trello.get_card_comments.return_value = [
-            {
-                "id": "comment1",
-                "data": {"text": "First comment"},
-                "date": "2024-01-15T10:30:00.000Z",
-                "memberCreator": {"fullName": "John Doe"},
-            },
             {
                 "id": "comment2",
                 "data": {"text": "Second comment"},
                 "date": "2024-01-16T14:20:00.000Z",
                 "memberCreator": {"fullName": "Jane Smith"},
+            },
+            {
+                "id": "comment1",
+                "data": {"text": "First comment"},
+                "date": "2024-01-15T10:30:00.000Z",
+                "memberCreator": {"fullName": "John Doe"},
             },
         ]
 
@@ -618,23 +603,37 @@ class TestCommentFetching:
             created_issues.append({"id": issue_id, **kwargs})
             return issue_id
 
-        with patch.object(converter.beads, "create_issue", side_effect=mock_create_issue):
+        with (
+            patch.object(converter.beads, "create_issue", side_effect=mock_create_issue),
+            patch.object(converter.beads, "add_comment") as mock_add_comment,
+        ):
             converter.convert()
 
-        # Verify comments were fetched
-        mock_trello.get_card_comments.assert_called_once_with("card1")
+            # Verify comments were fetched
+            mock_trello.get_card_comments.assert_called_once_with("card1")
 
-        # Verify comments embedded in description (currently - will change in rmn.7)
-        assert len(created_issues) == 1
-        desc = created_issues[0]["description"]
+            # Verify comments added as real beads comments (not embedded in description)
+            assert len(created_issues) == 1
+            desc = created_issues[0]["description"]
 
-        assert "## Comments" in desc
-        assert "John Doe" in desc
-        assert "Jane Smith" in desc
-        assert "First comment" in desc
-        assert "Second comment" in desc
-        assert "2024-01-15" in desc
-        assert "2024-01-16" in desc
+            # Comments should NOT be in description anymore
+            assert "## Comments" not in desc
+
+            # Verify add_comment was called with resolved comments
+            assert mock_add_comment.call_count == 2
+            # Comments are added oldest first
+            first_call = mock_add_comment.call_args_list[0]
+            second_call = mock_add_comment.call_args_list[1]
+
+            # Check first comment (oldest)
+            assert first_call[0][0] == "test-0"  # issue_id
+            assert "[2024-01-15] First comment" in first_call[0][1]  # text with timestamp
+            assert first_call[1]["author"] == "John Doe"
+
+            # Check second comment
+            assert second_call[0][0] == "test-0"
+            assert "[2024-01-16] Second comment" in second_call[0][1]
+            assert second_call[1]["author"] == "Jane Smith"
 
 
 class TestErrorHandling:
@@ -648,9 +647,7 @@ class TestErrorHandling:
             "name": "Test Board",
             "url": "https://trello.com/b/abc123",
         }
-        mock_trello.get_lists.return_value = [
-            {"id": "list1", "name": "To Do", "pos": 1000}
-        ]
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
         mock_trello.get_cards.return_value = [
             {
                 "id": "card1",
