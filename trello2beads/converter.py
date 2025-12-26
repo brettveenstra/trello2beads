@@ -65,6 +65,67 @@ class TrelloToBeadsConverter:
         # Default to open (safe)
         return "open"
 
+    def calculate_priority_from_position(self, card: dict, cards_in_list: list[dict]) -> int:
+        """Calculate beads priority using hybrid position + recency approach.
+
+        Algorithm:
+        1. Base priority from position (top 1-2 cards = P1, bottom = P3, middle = P2)
+        2. Recency boost: cards inactive >90 days bumped to P1 (surface forgotten work)
+
+        Args:
+            card: The card to calculate priority for
+            cards_in_list: All cards in the same list (sorted by position)
+
+        Returns:
+            Priority (0-4): P1 for top cards or stale cards, P2 default, P3 for bottom
+        """
+        from datetime import datetime, timezone
+
+        # Step 1: Calculate base priority from position
+        if len(cards_in_list) <= 1:
+            # Single card in list → default priority
+            base_priority = 2
+        else:
+            # Sort cards by position to identify top/bottom
+            sorted_cards = sorted(cards_in_list, key=lambda c: c.get("pos", 0))
+            card_index = next((i for i, c in enumerate(sorted_cards) if c["id"] == card["id"]), -1)
+
+            if card_index < 0:
+                # Card not found (shouldn't happen) → default
+                base_priority = 2
+            elif card_index <= 1:
+                # Top 1-2 cards → P1 (top of mind)
+                base_priority = 1
+            elif card_index == len(sorted_cards) - 1:
+                # Bottom card → P3 (low priority)
+                base_priority = 3
+            else:
+                # Middle cards → P2 (default)
+                base_priority = 2
+
+        # Step 2: Apply recency boost for forgotten cards
+        date_last_activity = card.get("dateLastActivity")
+        if date_last_activity:
+            try:
+                # Parse ISO 8601 timestamp
+                last_activity = datetime.fromisoformat(date_last_activity.replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                days_since_activity = (now - last_activity).days
+
+                # Boost stale cards (90+ days old) to P1 unless already P1
+                if days_since_activity >= 90 and base_priority > 1:
+                    logger.debug(
+                        f"Recency boost: '{card['name']}' inactive for {days_since_activity} days "
+                        f"(P{base_priority} → P1)"
+                    )
+                    return 1  # Surface forgotten work
+
+            except (ValueError, AttributeError):
+                # Invalid date format → ignore recency boost
+                pass
+
+        return base_priority
+
     def _add_resolved_comments(self, card_id: str, beads_id: str) -> tuple[int, int]:
         """Add Trello comments to beads issue with URL resolution.
 
@@ -407,6 +468,14 @@ class TrelloToBeadsConverter:
         # Sort cards by position
         cards_sorted = sorted(cards, key=lambda c: (c["idList"], c.get("pos", 0)))
 
+        # Group cards by list for position-based priority calculation
+        cards_by_list: dict[str, list[dict]] = {}
+        for card in cards_sorted:
+            list_id = card["idList"]
+            if list_id not in cards_by_list:
+                cards_by_list[list_id] = []
+            cards_by_list[list_id].append(card)
+
         # FIRST PASS: Create all issues and build mapping
         logger.info("🔄 Pass 1: Creating beads issues...")
         created_count = 0
@@ -473,12 +542,16 @@ class TrelloToBeadsConverter:
                 logger.info("")
             else:
                 try:
+                    # Calculate priority based on position and recency
+                    cards_in_list = cards_by_list.get(card["idList"], [])
+                    priority = self.calculate_priority_from_position(card, cards_in_list)
+
                     # Create parent issue (epic if has checklists, task otherwise)
                     issue_id = self.beads.create_issue(
                         title=card["name"],
                         description=description,
                         status=status,
-                        priority=2,
+                        priority=priority,
                         issue_type=issue_type,
                         labels=labels,
                         external_ref=external_ref,
@@ -525,7 +598,7 @@ class TrelloToBeadsConverter:
                                         title=child_title,
                                         description=child_desc,
                                         status=child_status,
-                                        priority=2,
+                                        priority=priority,  # Inherit parent card's priority
                                         issue_type="task",
                                         labels=[f"epic:{issue_id}", f"list:{list_name}"],
                                         external_ref=f"{external_ref}:checklist-item",
