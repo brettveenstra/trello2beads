@@ -1358,7 +1358,7 @@ class TrelloToBeadsConverter:
         # Default to open (safe)
         return "open"
 
-    def _add_resolved_comments(self, card_id: str, beads_id: str) -> int:
+    def _add_resolved_comments(self, card_id: str, beads_id: str) -> tuple[int, int]:
         """Add Trello comments to beads issue with URL resolution.
 
         Args:
@@ -1366,13 +1366,14 @@ class TrelloToBeadsConverter:
             beads_id: Beads issue ID to add comments to
 
         Returns:
-            Number of comments successfully added
+            Tuple of (comments_added, comments_failed)
         """
         comments = self.card_comments.get(card_id, [])
         if not comments:
-            return 0
+            return 0, 0
 
         added_count = 0
+        failed_count = 0
 
         # Regex pattern for Trello card URLs
         trello_url_pattern = re.compile(r"(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?")
@@ -1402,26 +1403,37 @@ class TrelloToBeadsConverter:
                 self.beads.add_comment(beads_id, comment_text, author=author)
                 added_count += 1
             except Exception as e:
+                failed_count += 1
                 logger.warning("Failed to add comment to %s: %s", beads_id, e)
 
-        return added_count
+        return added_count, failed_count
 
     def _resolve_card_references(
-        self, cards: list[dict], comments_by_card: dict[str, list[dict]]
-    ) -> tuple[int, int, int]:
+        self,
+        cards: list[dict],
+        comments_by_card: dict[str, list[dict]],
+        broken_references: list[str],
+    ) -> tuple[int, int, int, int, int]:
         """
         Second pass: Find Trello card URLs in descriptions/attachments
         and replace with beads issue references. Also add comments as beads comments.
         Creates "related" type dependencies for cross-references.
 
+        Args:
+            cards: List of Trello cards
+            comments_by_card: Map of card IDs to comments
+            broken_references: List to append broken reference URLs to
+
         Returns:
-            tuple: (resolved_count, comments_added_count, dependencies_created_count)
+            tuple: (resolved_count, comments_added, comments_failed, dependencies_created, dependencies_failed)
         """
         import re
 
         resolved_count = 0
         total_comments_added = 0
+        total_comments_failed = 0
         dependencies_created = 0
+        dependencies_failed = 0
 
         # Regex patterns for Trello card URLs
         # Matches: https://trello.com/c/abc123 or trello.com/c/abc123/card-name
@@ -1457,12 +1469,20 @@ class TrelloToBeadsConverter:
                     replacements_made = True
                     referenced_beads_ids.add(target_beads_id)
                     print(f"  ✓ Resolved {short_link} → {target_beads_id} in description")
+                elif not target_beads_id:
+                    # Track broken reference
+                    broken_references.append(full_url)
+                    logger.warning(
+                        "Broken reference in %s: %s (card not in conversion)", beads_id, full_url
+                    )
 
             # Add comments as actual beads comments (with URL resolution)
-            comments_added = self._add_resolved_comments(card["id"], beads_id)
+            comments_added, comments_failed = self._add_resolved_comments(card["id"], beads_id)
             if comments_added > 0:
                 total_comments_added += comments_added
                 print(f"  ✓ Added {comments_added} comment(s) to {beads_id}")
+            if comments_failed > 0:
+                total_comments_failed += comments_failed
 
             # Also check comments for card references (for dependency tracking)
             card_comments = comments_by_card.get(card["id"], [])
@@ -1470,10 +1490,13 @@ class TrelloToBeadsConverter:
                 comment_text = comment.get("data", {}).get("text", "")
                 comment_matches = trello_url_pattern.finditer(comment_text)
                 for match in comment_matches:
+                    full_url = match.group(0)
                     short_link = match.group(1)
                     target_beads_id = self.card_url_map.get(short_link)
                     if target_beads_id and target_beads_id != beads_id:
                         referenced_beads_ids.add(target_beads_id)
+                    elif not target_beads_id:
+                        broken_references.append(full_url)
 
             # Also check attachments for Trello card links
             attachment_refs = []
@@ -1483,6 +1506,7 @@ class TrelloToBeadsConverter:
                     att_match: re.Match[str] | None = trello_url_pattern.search(att_url)
 
                     if att_match:
+                        full_url = att_match.group(0)
                         short_link = att_match.group(1)
                         target_beads_id = self.card_url_map.get(short_link)
 
@@ -1493,6 +1517,8 @@ class TrelloToBeadsConverter:
                             replacements_made = True
                             referenced_beads_ids.add(target_beads_id)
                             print(f"  ✓ Attachment '{att['name']}' → {target_beads_id}")
+                        elif not target_beads_id:
+                            broken_references.append(full_url)
 
             # If we made any replacements, rebuild and update the full description
             if replacements_made:
@@ -1541,6 +1567,7 @@ class TrelloToBeadsConverter:
                         dependencies_created += 1
                         logger.debug("Created related dependency: %s → %s", beads_id, target_id)
                     except Exception as e:
+                        dependencies_failed += 1
                         logger.warning(
                             "Failed to create dependency %s → %s: %s",
                             beads_id,
@@ -1552,7 +1579,13 @@ class TrelloToBeadsConverter:
                     f"  ✓ Created {len(referenced_beads_ids)} related dependency/dependencies for {beads_id}"
                 )
 
-        return resolved_count, total_comments_added, dependencies_created
+        return (
+            resolved_count,
+            total_comments_added,
+            total_comments_failed,
+            dependencies_created,
+            dependencies_failed,
+        )
 
     def _update_description(self, issue_id: str, new_description: str) -> None:
         """Update beads issue description"""
@@ -1590,6 +1623,15 @@ class TrelloToBeadsConverter:
         """Perform the conversion"""
         print("🔄 Starting Trello → Beads conversion...")
         print()
+
+        # Track validation warnings and statistics
+        validation_warnings: list[str] = []
+        failed_issues: list[dict] = []
+        failed_comments: int = 0
+        failed_dependencies: int = 0
+        broken_references: list[str] = []
+        epic_count = 0
+        child_task_count = 0
 
         # PASS 0: Fetch from Trello and save snapshot (or load existing)
         if snapshot_path and Path(snapshot_path).exists():
@@ -1660,6 +1702,12 @@ class TrelloToBeadsConverter:
         print("🔄 Pass 1: Creating beads issues...")
         created_count = 0
         for card in cards_sorted:
+            # Validate card has a title
+            if not card.get("name") or not card["name"].strip():
+                validation_warnings.append(f"Card {card['id']} has no title - skipping")
+                logger.warning("Skipping card %s: no title", card["id"])
+                continue
+
             list_name = self.list_map.get(card["idList"], "Unknown")
             status = self.list_to_status(list_name)
 
@@ -1734,6 +1782,7 @@ class TrelloToBeadsConverter:
 
                     if has_checklists:
                         print(f"✅ Created {issue_id}: {card['name']} (epic, list:{list_name})")
+                        epic_count += 1
                     else:
                         print(f"✅ Created {issue_id}: {card['name']} (list:{list_name})")
                     created_count += 1
@@ -1777,8 +1826,16 @@ class TrelloToBeadsConverter:
                                     status_icon = "✓" if item_state == "complete" else "☐"
                                     print(f"  └─ {status_icon} Created {child_id}: {item_name}")
                                     created_count += 1
+                                    child_task_count += 1
 
                                 except Exception as e:
+                                    failed_issues.append(
+                                        {
+                                            "title": child_title,
+                                            "type": "child_task",
+                                            "error": str(e),
+                                        }
+                                    )
                                     logger.warning(
                                         "Failed to create child issue for checklist item '%s': %s",
                                         item_name,
@@ -1786,20 +1843,40 @@ class TrelloToBeadsConverter:
                                     )
 
                 except Exception as e:
+                    failed_issues.append(
+                        {
+                            "title": card["name"],
+                            "type": issue_type,
+                            "error": str(e),
+                        }
+                    )
                     print(f"❌ Failed to create '{card['name']}': {e}")
 
         # SECOND PASS: Resolve Trello card references and add comments (if not dry run)
         comments_added = 0
-        dependencies_created = 0
+        related_dependencies_created = 0
         if not dry_run and self.trello_to_beads:
             print()
             print("🔄 Pass 2: Resolving Trello card references and adding comments...")
-            resolved_count, comments_added, dependencies_created = self._resolve_card_references(
-                cards_sorted, comments_by_card
-            )
+            (
+                resolved_count,
+                comments_added,
+                failed_comments_pass2,
+                related_dependencies_created,
+                failed_dependencies_pass2,
+            ) = self._resolve_card_references(cards_sorted, comments_by_card, broken_references)
+
+            # Update totals
+            failed_comments += failed_comments_pass2
+            failed_dependencies += failed_dependencies_pass2
+
             print(f"✅ Resolved {resolved_count} Trello card references")
             print(f"✅ Added {comments_added} comments to beads issues")
-            print(f"✅ Created {dependencies_created} related dependencies")
+            if failed_comments > 0:
+                print(f"⚠️  Failed to add {failed_comments} comments")
+            print(f"✅ Created {related_dependencies_created} related dependencies")
+            if failed_dependencies > 0:
+                print(f"⚠️  Failed to create {failed_dependencies} dependencies")
 
         # Summary report
         print()
@@ -1828,7 +1905,68 @@ class TrelloToBeadsConverter:
             print(
                 f"  Comments: {comments_added} added as beads comments (from {comments_count} cards)"
             )
-            print(f"  Dependencies: {dependencies_created} related dependencies created")
+            print(f"  Dependencies: {related_dependencies_created} related dependencies created")
+
+            # Issue type breakdown
+            print("\nIssue Types:")
+            print(f"  Epics: {epic_count}")
+            print(f"  Child Tasks: {child_task_count}")
+            print(f"  Regular Tasks: {created_count - epic_count - child_task_count}")
+
+            # Validation Report
+            total_failures = len(failed_issues) + failed_comments + failed_dependencies
+            has_issues = (
+                total_failures > 0 or len(validation_warnings) > 0 or len(broken_references) > 0
+            )
+
+            if has_issues:
+                print("\n⚠️  VALIDATION REPORT:")
+
+                # Calculate success rate
+                total_attempted = len(cards)
+                total_succeeded = created_count
+                success_rate = (
+                    (total_succeeded / total_attempted * 100) if total_attempted > 0 else 0
+                )
+                print(
+                    f"  Success Rate: {success_rate:.1f}% ({total_succeeded}/{total_attempted} cards)"
+                )
+
+                # Validation warnings
+                if validation_warnings:
+                    print(f"\n  Validation Warnings ({len(validation_warnings)}):")
+                    for warning in validation_warnings[:5]:  # Show first 5
+                        print(f"    - {warning}")
+                    if len(validation_warnings) > 5:
+                        print(f"    ... and {len(validation_warnings) - 5} more")
+
+                # Failed issues
+                if failed_issues:
+                    print(f"\n  Failed Issue Creation ({len(failed_issues)}):")
+                    for failure in failed_issues[:5]:  # Show first 5
+                        print(f"    - [{failure['type']}] {failure['title']}: {failure['error']}")
+                    if len(failed_issues) > 5:
+                        print(f"    ... and {len(failed_issues) - 5} more")
+
+                # Failed comments
+                if failed_comments > 0:
+                    print(f"\n  Failed Comments: {failed_comments}")
+
+                # Failed dependencies
+                if failed_dependencies > 0:
+                    print(f"\n  Failed Dependencies: {failed_dependencies}")
+
+                # Broken references
+                if broken_references:
+                    unique_broken = list(set(broken_references))
+                    print(f"\n  Broken Trello References ({len(unique_broken)}):")
+                    print("    (URLs to cards not included in this conversion)")
+                    for ref in unique_broken[:5]:  # Show first 5
+                        print(f"    - {ref}")
+                    if len(unique_broken) > 5:
+                        print(f"    ... and {len(unique_broken) - 5} more")
+            else:
+                print("\n✅ Validation: No issues detected")
 
             print("\nStatus Distribution:")
             status_counts: dict[str, int] = {}
