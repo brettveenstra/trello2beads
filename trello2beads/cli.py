@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
 
 from trello2beads.beads_client import BeadsWriter
 from trello2beads.converter import TrelloToBeadsConverter, load_status_mapping
+from trello2beads.logging_config import setup_logging
 from trello2beads.trello_client import TrelloReader
+
+logger = logging.getLogger("trello2beads.cli")
 
 # Module docstring for --help
 __doc__ = """
@@ -42,6 +46,27 @@ def main() -> None:
         print(__doc__)
         sys.exit(0)
 
+    # Parse logging flags
+    log_level = "INFO"  # Default
+    log_file = None
+
+    if "--verbose" in sys.argv or "-v" in sys.argv:
+        log_level = "DEBUG"
+    elif "--quiet" in sys.argv or "-q" in sys.argv:
+        log_level = "ERROR"
+    elif "--log-level" in sys.argv:
+        idx = sys.argv.index("--log-level")
+        if idx + 1 < len(sys.argv):
+            log_level = sys.argv[idx + 1].upper()
+
+    if "--log-file" in sys.argv:
+        idx = sys.argv.index("--log-file")
+        if idx + 1 < len(sys.argv):
+            log_file = sys.argv[idx + 1]
+
+    # Setup logging
+    setup_logging(log_level, log_file)
+
     # Load credentials from environment (optionally from .env file)
     env_file = os.getenv("TRELLO_ENV_FILE", ".env")
     if Path(env_file).exists():
@@ -60,30 +85,30 @@ def main() -> None:
 
     # Validate credentials (need either board_id OR board_url)
     if not api_key or not token:
-        print("❌ Error: Missing required Trello credentials")
-        print("\nRequired environment variables:")
-        print("  TRELLO_API_KEY     - Your Trello API key")
-        print("  TRELLO_TOKEN       - Your Trello API token")
-        print("\nAnd one of:")
-        print("  TRELLO_BOARD_ID    - The board ID (e.g., Bm0nnz1R)")
-        print(
+        logger.error("❌ Error: Missing required Trello credentials")
+        logger.error("\nRequired environment variables:")
+        logger.error("  TRELLO_API_KEY     - Your Trello API key")
+        logger.error("  TRELLO_TOKEN       - Your Trello API token")
+        logger.error("\nAnd one of:")
+        logger.error("  TRELLO_BOARD_ID    - The board ID (e.g., Bm0nnz1R)")
+        logger.error(
             "  TRELLO_BOARD_URL   - The full board URL (e.g., https://trello.com/b/Bm0nnz1R/my-board)"
         )
-        print("\nSet them in your environment or create a .env file:")
-        print('  export TRELLO_API_KEY="..."')
-        print('  export TRELLO_TOKEN="..."')
-        print('  export TRELLO_BOARD_ID="..." (or TRELLO_BOARD_URL="...")')
-        print("\nFor setup instructions, see README.md")
+        logger.error("\nSet them in your environment or create a .env file:")
+        logger.error('  export TRELLO_API_KEY="..."')
+        logger.error('  export TRELLO_TOKEN="..."')
+        logger.error('  export TRELLO_BOARD_ID="..." (or TRELLO_BOARD_URL="...")')
+        logger.error("\nFor setup instructions, see README.md")
         sys.exit(1)
 
     if not board_id and not board_url:
-        print("❌ Error: Missing board identifier")
-        print("\nYou must provide either:")
-        print("  TRELLO_BOARD_ID    - The board ID (e.g., Bm0nnz1R)")
-        print(
+        logger.error("❌ Error: Missing board identifier")
+        logger.error("\nYou must provide either:")
+        logger.error("  TRELLO_BOARD_ID    - The board ID (e.g., Bm0nnz1R)")
+        logger.error(
             "  TRELLO_BOARD_URL   - The full board URL (e.g., https://trello.com/b/Bm0nnz1R/my-board)"
         )
-        print("\nFor setup instructions, see README.md")
+        logger.error("\nFor setup instructions, see README.md")
         sys.exit(1)
 
     # Type narrowing for mypy
@@ -99,31 +124,31 @@ def main() -> None:
     if "--status-mapping" in sys.argv:
         idx = sys.argv.index("--status-mapping")
         if idx + 1 >= len(sys.argv):
-            print("❌ Error: --status-mapping requires a file path")
-            print("Usage: --status-mapping path/to/mapping.json")
+            logger.error("❌ Error: --status-mapping requires a file path")
+            logger.error("Usage: --status-mapping path/to/mapping.json")
             sys.exit(1)
 
         status_mapping_path = sys.argv[idx + 1]
         try:
             custom_status_keywords = load_status_mapping(status_mapping_path)
-            print(f"✅ Loaded custom status mapping from: {status_mapping_path}")
+            logger.info(f"✅ Loaded custom status mapping from: {status_mapping_path}")
         except (FileNotFoundError, ValueError) as e:
-            print(f"❌ Error loading status mapping: {e}")
+            logger.error(f"❌ Error loading status mapping: {e}")
             sys.exit(1)
 
     # Find beads database (current directory or override)
     beads_db_path = os.getenv("BEADS_DB_PATH") or str(Path.cwd() / ".beads/beads.db")
 
     if not Path(beads_db_path).exists():
-        print(f"❌ Error: Beads database not found: {beads_db_path}")
-        print("\nYou need to initialize a beads database first:")
-        print("  bd init --prefix myproject")
-        print("\nOr specify a custom path:")
-        print("  export BEADS_DB_PATH=/path/to/.beads/beads.db")
+        logger.error(f"❌ Error: Beads database not found: {beads_db_path}")
+        logger.error("\nYou need to initialize a beads database first:")
+        logger.error("  bd init --prefix myproject")
+        logger.error("\nOr specify a custom path:")
+        logger.error("  export BEADS_DB_PATH=/path/to/.beads/beads.db")
         sys.exit(1)
 
-    print(f"📂 Using beads database: {beads_db_path}")
-    print()
+    logger.info(f"📂 Using beads database: {beads_db_path}")
+    logger.info("")
 
     # Snapshot path for caching Trello API responses
     snapshot_path = os.getenv("SNAPSHOT_PATH") or str(Path.cwd() / "trello_snapshot.json")
@@ -142,7 +167,7 @@ def main() -> None:
             else snapshot_path,  # Always save/use snapshot
         )
     except Exception as e:
-        print(f"❌ Conversion failed: {e}")
+        logger.error(f"❌ Conversion failed: {e}")
         import traceback
 
         traceback.print_exc()

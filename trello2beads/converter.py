@@ -175,7 +175,7 @@ class TrelloToBeadsConverter:
                     updated_desc = updated_desc.replace(full_url, beads_ref)
                     replacements_made = True
                     referenced_beads_ids.add(target_beads_id)
-                    print(f"  ✓ Resolved {short_link} → {target_beads_id} in description")
+                    logger.info(f"  ✓ Resolved {short_link} → {target_beads_id} in description")
                 elif not target_beads_id:
                     # Track broken reference
                     broken_references.append(full_url)
@@ -187,7 +187,7 @@ class TrelloToBeadsConverter:
             comments_added, comments_failed = self._add_resolved_comments(card["id"], beads_id)
             if comments_added > 0:
                 total_comments_added += comments_added
-                print(f"  ✓ Added {comments_added} comment(s) to {beads_id}")
+                logger.info(f"  ✓ Added {comments_added} comment(s) to {beads_id}")
             if comments_failed > 0:
                 total_comments_failed += comments_failed
 
@@ -223,7 +223,7 @@ class TrelloToBeadsConverter:
                             )
                             replacements_made = True
                             referenced_beads_ids.add(target_beads_id)
-                            print(f"  ✓ Attachment '{att['name']}' → {target_beads_id}")
+                            logger.info(f"  ✓ Attachment '{att['name']}' → {target_beads_id}")
                         elif not target_beads_id:
                             broken_references.append(full_url)
 
@@ -282,7 +282,7 @@ class TrelloToBeadsConverter:
                             e,
                         )
 
-                print(
+                logger.info(
                     f"  ✓ Created {len(referenced_beads_ids)} related dependency/dependencies for {beads_id}"
                 )
 
@@ -306,7 +306,9 @@ class TrelloToBeadsConverter:
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
-            print(f"    ⚠️  Warning: Failed to update description for {issue_id}: {result.stderr}")
+            logger.warning(
+                f"    ⚠️  Warning: Failed to update description for {issue_id}: {result.stderr}"
+            )
 
     def __init__(
         self,
@@ -328,8 +330,8 @@ class TrelloToBeadsConverter:
 
     def convert(self, dry_run: bool = False, snapshot_path: str | None = None) -> None:
         """Perform the conversion"""
-        print("🔄 Starting Trello → Beads conversion...")
-        print()
+        logger.info("🔄 Starting Trello → Beads conversion...")
+        logger.info("")
 
         # Track validation warnings and statistics
         validation_warnings: list[str] = []
@@ -342,22 +344,22 @@ class TrelloToBeadsConverter:
 
         # PASS 0: Fetch from Trello and save snapshot (or load existing)
         if snapshot_path and Path(snapshot_path).exists():
-            print(f"📂 Loading existing snapshot: {snapshot_path}")
+            logger.info(f"📂 Loading existing snapshot: {snapshot_path}")
             with open(snapshot_path) as f:
                 snapshot = json.load(f)
             board = snapshot["board"]
             lists = snapshot["lists"]
             cards = snapshot["cards"]
             comments_by_card = snapshot.get("comments", {})
-            print(f"✅ Loaded {len(cards)} cards from snapshot")
+            logger.info(f"✅ Loaded {len(cards)} cards from snapshot")
         else:
-            print("🌐 Fetching from Trello API...")
+            logger.info("🌐 Fetching from Trello API...")
             board = self.trello.get_board()
             lists = self.trello.get_lists()
             cards = self.trello.get_cards()
 
             # Fetch comments for cards that have them
-            print("💬 Fetching comments...")
+            logger.info("💬 Fetching comments...")
             comments_by_card = {}
             cards_with_comments = [c for c in cards if c.get("badges", {}).get("comments", 0) > 0]
 
@@ -366,7 +368,7 @@ class TrelloToBeadsConverter:
                 comments = self.trello.get_card_comments(card_id)
                 if comments:
                     comments_by_card[card_id] = comments
-                    print(
+                    logger.info(
                         f"  {i}/{len(cards_with_comments)}: {len(comments)} comments on '{card['name']}'"
                     )
 
@@ -383,30 +385,30 @@ class TrelloToBeadsConverter:
                 Path(snapshot_path).parent.mkdir(parents=True, exist_ok=True)
                 with open(snapshot_path, "w") as f:
                     json.dump(snapshot, f, indent=2)
-                print(f"💾 Saved snapshot: {snapshot_path}")
+                logger.info(f"💾 Saved snapshot: {snapshot_path}")
 
-        print(f"\n📋 Board: {board['name']}")
-        print(f"   URL: {board['url']}")
-        print(f"📝 Lists: {len(lists)}")
-        print(f"🎴 Cards: {len(cards)}")
-        print()
+        logger.info(f"\n📋 Board: {board['name']}")
+        logger.info(f"   URL: {board['url']}")
+        logger.info(f"📝 Lists: {len(lists)}")
+        logger.info(f"🎴 Cards: {len(cards)}")
+        logger.info("")
 
         # Build list map
         for lst in lists:
             self.list_map[lst["id"]] = lst["name"]
 
         # Log list-to-status mapping
-        print("📋 List → Status Mapping:")
+        logger.info("📋 List → Status Mapping:")
         for lst in lists:
             status = self.list_to_status(lst["name"])
-            print(f"   '{lst['name']}' → {status}")
-        print()
+            logger.info(f"   '{lst['name']}' → {status}")
+        logger.info("")
 
         # Sort cards by position
         cards_sorted = sorted(cards, key=lambda c: (c["idList"], c.get("pos", 0)))
 
         # FIRST PASS: Create all issues and build mapping
-        print("🔄 Pass 1: Creating beads issues...")
+        logger.info("🔄 Pass 1: Creating beads issues...")
         created_count = 0
         for card in cards_sorted:
             # Validate card has a title
@@ -459,16 +461,16 @@ class TrelloToBeadsConverter:
             issue_type = "epic" if has_checklists else "task"
 
             if dry_run:
-                print("[DRY RUN] Would create:")
-                print(f"  Title: {card['name']}")
-                print(f"  Type: {issue_type}")
-                print(f"  Status: {status}")
-                print(f"  List: {list_name}")
-                print(f"  Labels: {', '.join(labels)}")
+                logger.info("[DRY RUN] Would create:")
+                logger.info(f"  Title: {card['name']}")
+                logger.info(f"  Type: {issue_type}")
+                logger.info(f"  Status: {status}")
+                logger.info(f"  List: {list_name}")
+                logger.info(f"  Labels: {', '.join(labels)}")
                 if has_checklists:
                     total_items = sum(len(cl.get("checkItems", [])) for cl in card["checklists"])
-                    print(f"  Children: {total_items} checklist items")
-                print()
+                    logger.info(f"  Children: {total_items} checklist items")
+                logger.info("")
             else:
                 try:
                     # Create parent issue (epic if has checklists, task otherwise)
@@ -488,10 +490,12 @@ class TrelloToBeadsConverter:
                     self.card_url_map[card["shortLink"]] = issue_id
 
                     if has_checklists:
-                        print(f"✅ Created {issue_id}: {card['name']} (epic, list:{list_name})")
+                        logger.info(
+                            f"✅ Created {issue_id}: {card['name']} (epic, list:{list_name})"
+                        )
                         epic_count += 1
                     else:
-                        print(f"✅ Created {issue_id}: {card['name']} (list:{list_name})")
+                        logger.info(f"✅ Created {issue_id}: {card['name']} (list:{list_name})")
                     created_count += 1
 
                     # Create child issues for checklist items
@@ -531,7 +535,9 @@ class TrelloToBeadsConverter:
                                     self.beads.add_dependency(child_id, issue_id, "parent-child")
 
                                     status_icon = "✓" if item_state == "complete" else "☐"
-                                    print(f"  └─ {status_icon} Created {child_id}: {item_name}")
+                                    logger.info(
+                                        f"  └─ {status_icon} Created {child_id}: {item_name}"
+                                    )
                                     created_count += 1
                                     child_task_count += 1
 
@@ -557,14 +563,14 @@ class TrelloToBeadsConverter:
                             "error": str(e),
                         }
                     )
-                    print(f"❌ Failed to create '{card['name']}': {e}")
+                    logger.error(f"❌ Failed to create '{card['name']}': {e}")
 
         # SECOND PASS: Resolve Trello card references and add comments (if not dry run)
         comments_added = 0
         related_dependencies_created = 0
         if not dry_run and self.trello_to_beads:
-            print()
-            print("🔄 Pass 2: Resolving Trello card references and adding comments...")
+            logger.info("")
+            logger.info("🔄 Pass 2: Resolving Trello card references and adding comments...")
             (
                 resolved_count,
                 comments_added,
@@ -577,27 +583,27 @@ class TrelloToBeadsConverter:
             failed_comments += failed_comments_pass2
             failed_dependencies += failed_dependencies_pass2
 
-            print(f"✅ Resolved {resolved_count} Trello card references")
-            print(f"✅ Added {comments_added} comments to beads issues")
+            logger.info(f"✅ Resolved {resolved_count} Trello card references")
+            logger.info(f"✅ Added {comments_added} comments to beads issues")
             if failed_comments > 0:
-                print(f"⚠️  Failed to add {failed_comments} comments")
-            print(f"✅ Created {related_dependencies_created} related dependencies")
+                logger.warning(f"⚠️  Failed to add {failed_comments} comments")
+            logger.info(f"✅ Created {related_dependencies_created} related dependencies")
             if failed_dependencies > 0:
-                print(f"⚠️  Failed to create {failed_dependencies} dependencies")
+                logger.warning(f"⚠️  Failed to create {failed_dependencies} dependencies")
 
         # Summary report
-        print()
-        print("=" * 60)
-        print("📊 CONVERSION SUMMARY")
-        print("=" * 60)
-        print(f"Board: {board['name']}")
-        print(f"Lists: {len(lists)}")
-        print(f"Total Cards: {len(cards)}")
+        logger.info("")
+        logger.info("=" * 60)
+        logger.info("📊 CONVERSION SUMMARY")
+        logger.info("=" * 60)
+        logger.info(f"Board: {board['name']}")
+        logger.info(f"Lists: {len(lists)}")
+        logger.info(f"Total Cards: {len(cards)}")
 
         if dry_run:
-            print(f"\n🎯 Dry run complete. Would create {len(cards)} issues")
+            logger.info(f"\n🎯 Dry run complete. Would create {len(cards)} issues")
         else:
-            print(f"Issues Created: {created_count}/{len(cards)}")
+            logger.info(f"Issues Created: {created_count}/{len(cards)}")
 
             # Count preserved features
             checklists_count = sum(1 for c in cards if c.get("checklists"))
@@ -605,20 +611,22 @@ class TrelloToBeadsConverter:
             labels_count = sum(1 for c in cards if c.get("labels"))
             comments_count = len(comments_by_card)
 
-            print("\nPreserved Features:")
-            print(f"  Checklists: {checklists_count} cards")
-            print(f"  Attachments: {attachments_count} cards")
-            print(f"  Labels: {labels_count} cards")
-            print(
+            logger.info("\nPreserved Features:")
+            logger.info(f"  Checklists: {checklists_count} cards")
+            logger.info(f"  Attachments: {attachments_count} cards")
+            logger.info(f"  Labels: {labels_count} cards")
+            logger.info(
                 f"  Comments: {comments_added} added as beads comments (from {comments_count} cards)"
             )
-            print(f"  Dependencies: {related_dependencies_created} related dependencies created")
+            logger.info(
+                f"  Dependencies: {related_dependencies_created} related dependencies created"
+            )
 
             # Issue type breakdown
-            print("\nIssue Types:")
-            print(f"  Epics: {epic_count}")
-            print(f"  Child Tasks: {child_task_count}")
-            print(f"  Regular Tasks: {created_count - epic_count - child_task_count}")
+            logger.info("\nIssue Types:")
+            logger.info(f"  Epics: {epic_count}")
+            logger.info(f"  Child Tasks: {child_task_count}")
+            logger.info(f"  Regular Tasks: {created_count - epic_count - child_task_count}")
 
             # Validation Report
             total_failures = len(failed_issues) + failed_comments + failed_dependencies
@@ -627,7 +635,7 @@ class TrelloToBeadsConverter:
             )
 
             if has_issues:
-                print("\n⚠️  VALIDATION REPORT:")
+                logger.warning("\n⚠️  VALIDATION REPORT:")
 
                 # Calculate success rate
                 total_attempted = len(cards)
@@ -635,47 +643,49 @@ class TrelloToBeadsConverter:
                 success_rate = (
                     (total_succeeded / total_attempted * 100) if total_attempted > 0 else 0
                 )
-                print(
+                logger.info(
                     f"  Success Rate: {success_rate:.1f}% ({total_succeeded}/{total_attempted} cards)"
                 )
 
                 # Validation warnings
                 if validation_warnings:
-                    print(f"\n  Validation Warnings ({len(validation_warnings)}):")
+                    logger.info(f"\n  Validation Warnings ({len(validation_warnings)}):")
                     for warning in validation_warnings[:5]:  # Show first 5
-                        print(f"    - {warning}")
+                        logger.info(f"    - {warning}")
                     if len(validation_warnings) > 5:
-                        print(f"    ... and {len(validation_warnings) - 5} more")
+                        logger.info(f"    ... and {len(validation_warnings) - 5} more")
 
                 # Failed issues
                 if failed_issues:
-                    print(f"\n  Failed Issue Creation ({len(failed_issues)}):")
+                    logger.info(f"\n  Failed Issue Creation ({len(failed_issues)}):")
                     for failure in failed_issues[:5]:  # Show first 5
-                        print(f"    - [{failure['type']}] {failure['title']}: {failure['error']}")
+                        logger.info(
+                            f"    - [{failure['type']}] {failure['title']}: {failure['error']}"
+                        )
                     if len(failed_issues) > 5:
-                        print(f"    ... and {len(failed_issues) - 5} more")
+                        logger.info(f"    ... and {len(failed_issues) - 5} more")
 
                 # Failed comments
                 if failed_comments > 0:
-                    print(f"\n  Failed Comments: {failed_comments}")
+                    logger.info(f"\n  Failed Comments: {failed_comments}")
 
                 # Failed dependencies
                 if failed_dependencies > 0:
-                    print(f"\n  Failed Dependencies: {failed_dependencies}")
+                    logger.info(f"\n  Failed Dependencies: {failed_dependencies}")
 
                 # Broken references
                 if broken_references:
                     unique_broken = list(set(broken_references))
-                    print(f"\n  Broken Trello References ({len(unique_broken)}):")
-                    print("    (URLs to cards not included in this conversion)")
+                    logger.info(f"\n  Broken Trello References ({len(unique_broken)}):")
+                    logger.info("    (URLs to cards not included in this conversion)")
                     for ref in unique_broken[:5]:  # Show first 5
-                        print(f"    - {ref}")
+                        logger.info(f"    - {ref}")
                     if len(unique_broken) > 5:
-                        print(f"    ... and {len(unique_broken) - 5} more")
+                        logger.info(f"    ... and {len(unique_broken) - 5} more")
             else:
-                print("\n✅ Validation: No issues detected")
+                logger.info("\n✅ Validation: No issues detected")
 
-            print("\nStatus Distribution:")
+            logger.info("\nStatus Distribution:")
             status_counts: dict[str, int] = {}
             for card in cards_sorted:
                 list_name = self.list_map.get(card["idList"], "Unknown")
@@ -683,13 +693,13 @@ class TrelloToBeadsConverter:
                 status_counts[status] = status_counts.get(status, 0) + 1
 
             for status, count in sorted(status_counts.items()):
-                print(f"  {status}: {count}")
+                logger.info(f"  {status}: {count}")
 
-            print("\n✅ Conversion complete!")
-            print("\nView issues: bd list")
-            print("Query by list: bd list --labels 'list:To Do'")
-            print("Show issue: bd show <issue-id>")
-        print("=" * 60)
+            logger.info("\n✅ Conversion complete!")
+            logger.info("\nView issues: bd list")
+            logger.info("Query by list: bd list --labels 'list:To Do'")
+            logger.info("Show issue: bd show <issue-id>")
+        logger.info("=" * 60)
 
 
 def load_status_mapping(json_path: str) -> dict[str, list[str]]:

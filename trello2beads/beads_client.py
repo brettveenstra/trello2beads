@@ -340,7 +340,7 @@ class BeadsWriter:
 
         # Dry-run mode: print command instead of executing
         if self.dry_run:
-            print(f"[DRY-RUN] Would execute: {' '.join(cmd)}")
+            logger.info(f"[DRY-RUN] Would execute: {' '.join(cmd)}")
             # Return a mock issue ID for dry-run mode
             mock_id = "dryrun-mock"
             logger.info("[DRY-RUN] Mock issue ID: %s", mock_id)
@@ -459,7 +459,7 @@ class BeadsWriter:
 
         # Dry-run mode: print command instead of executing
         if self.dry_run:
-            print(f"[DRY-RUN] Would execute: {' '.join(cmd)}")
+            logger.info(f"[DRY-RUN] Would execute: {' '.join(cmd)}")
             logger.info("[DRY-RUN] Would update %s status to %s", issue_id, status)
             return
 
@@ -558,7 +558,7 @@ class BeadsWriter:
 
         # Dry-run mode: print command instead of executing
         if self.dry_run:
-            print(f"[DRY-RUN] Would execute: {' '.join(cmd)}")
+            logger.info(f"[DRY-RUN] Would execute: {' '.join(cmd)}")
             logger.info("[DRY-RUN] Would add dependency: %s → %s", issue_id, depends_on_id)
             return
 
@@ -643,7 +643,7 @@ class BeadsWriter:
 
         # Dry-run mode: print command instead of executing
         if self.dry_run:
-            print(f"[DRY-RUN] Would execute: {' '.join(cmd)}")
+            logger.info(f"[DRY-RUN] Would execute: {' '.join(cmd)}")
             logger.info("[DRY-RUN] Would add comment to %s", issue_id)
             return
 
@@ -720,7 +720,7 @@ class BeadsWriter:
 
         # Dry-run mode: return mock data
         if self.dry_run:
-            print(f"[DRY-RUN] Would execute: {' '.join(cmd)}")
+            logger.info(f"[DRY-RUN] Would execute: {' '.join(cmd)}")
             logger.info("[DRY-RUN] Would get issue %s", issue_id)
             return {
                 "id": "dryrun-mock",

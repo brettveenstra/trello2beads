@@ -24,6 +24,9 @@ from trello2beads.exceptions import (
     TrelloServerError,
 )
 
+# Import logging configuration
+from trello2beads.logging_config import setup_logging
+
 # Import rate limiter from extracted module
 from trello2beads.rate_limiter import RateLimiter
 
@@ -39,6 +42,7 @@ __all__ = [
     "BeadsWriter",
     "RateLimiter",
     "load_status_mapping",
+    "setup_logging",
     # Exceptions
     "TrelloAPIError",
     "TrelloAuthenticationError",
