@@ -202,6 +202,7 @@ class TrelloToBeadsConverter:
         total_comments_failed = 0
         dependencies_created = 0
         dependencies_failed = 0
+        circular_dependencies_skipped = 0  # Track cycles separately
 
         # Regex patterns for Trello card URLs
         # Matches: https://trello.com/c/abc123 or trello.com/c/abc123/card-name
@@ -335,13 +336,24 @@ class TrelloToBeadsConverter:
                         dependencies_created += 1
                         logger.debug("Created related dependency: %s → %s", beads_id, target_id)
                     except Exception as e:
-                        dependencies_failed += 1
-                        logger.warning(
-                            "Failed to create dependency %s → %s: %s",
-                            beads_id,
-                            target_id,
-                            e,
-                        )
+                        error_str = str(e).lower()
+
+                        # Detect circular dependency errors
+                        if "cycle" in error_str or "circular" in error_str:
+                            circular_dependencies_skipped += 1
+                            logger.debug(
+                                "Skipped circular dependency: %s → %s (would create cycle)",
+                                beads_id,
+                                target_id,
+                            )
+                        else:
+                            dependencies_failed += 1
+                            logger.warning(
+                                "Failed to create dependency %s → %s: %s",
+                                beads_id,
+                                target_id,
+                                e,
+                            )
 
                 logger.info(
                     f"  ✓ Created {len(referenced_beads_ids)} related dependency/dependencies for {beads_id}"
@@ -353,6 +365,7 @@ class TrelloToBeadsConverter:
             total_comments_failed,
             dependencies_created,
             dependencies_failed,
+            circular_dependencies_skipped,
         )
 
     def _update_description(self, issue_id: str, new_description: str) -> None:
@@ -676,6 +689,7 @@ class TrelloToBeadsConverter:
         # SECOND PASS: Resolve Trello card references and add comments (if not dry run)
         comments_added = 0
         related_dependencies_created = 0
+        circular_dependencies_skipped = 0
         if not dry_run and self.trello_to_beads:
             logger.info("")
             logger.info("🔄 Pass 2: Resolving Trello card references and adding comments...")
@@ -685,6 +699,7 @@ class TrelloToBeadsConverter:
                 failed_comments_pass2,
                 related_dependencies_created,
                 failed_dependencies_pass2,
+                circular_dependencies_skipped,
             ) = self._resolve_card_references(cards_sorted, comments_by_card, broken_references)
 
             # Update totals
@@ -696,6 +711,11 @@ class TrelloToBeadsConverter:
             if failed_comments > 0:
                 logger.warning(f"⚠️  Failed to add {failed_comments} comments")
             logger.info(f"✅ Created {related_dependencies_created} related dependencies")
+            if circular_dependencies_skipped > 0:
+                logger.info(
+                    f"ℹ️  Skipped {circular_dependencies_skipped} circular dependencies "
+                    "(Trello allows cycles, beads doesn't)"
+                )
             if failed_dependencies > 0:
                 logger.warning(f"⚠️  Failed to create {failed_dependencies} dependencies")
 
