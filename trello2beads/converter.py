@@ -594,9 +594,7 @@ class TrelloToBeadsConverter:
             # Generate IDs and write JSONL
             import tempfile
 
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".jsonl", delete=False
-            ) as jsonl_file:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as jsonl_file:
                 jsonl_path = jsonl_file.name
                 for i, issue in enumerate(issue_requests):
                     # Generate beads-style ID

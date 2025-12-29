@@ -270,7 +270,9 @@ def main() -> None:
                 logger.error("   2. Generate a NEW token (tokens can expire or be revoked)")
                 logger.error("   3. Check for extra quotes or whitespace in your credentials")
                 logger.error("   4. Make sure you're using:")
-                logger.error("      export TRELLO_API_KEY='your-key-here'  (no extra quotes inside)")
+                logger.error(
+                    "      export TRELLO_API_KEY='your-key-here'  (no extra quotes inside)"
+                )
                 logger.error("      export TRELLO_TOKEN='your-token-here'")
                 sys.exit(1)
             else:
