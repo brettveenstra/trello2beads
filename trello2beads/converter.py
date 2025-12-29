@@ -639,6 +639,7 @@ class TrelloToBeadsConverter:
                     for checklist in card["checklists"]:
                         checklist_name = checklist.get("name", "Checklist")
                         for item in checklist.get("checkItems", []):
+                            item_id = item["id"]
                             item_name = item["name"]
                             item_state = item.get("state", "incomplete")
 
@@ -664,7 +665,7 @@ class TrelloToBeadsConverter:
                                     priority=priority,  # Inherit parent card's priority
                                     issue_type="task",
                                     labels=[f"epic:{issue_id}", f"list:{list_name}"],
-                                    external_ref=f"{external_ref}:checklist-item",
+                                    external_ref=f"{external_ref}:item-{item_id}",
                                 )
 
                                 # Add parent-child dependency
