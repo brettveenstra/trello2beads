@@ -129,6 +129,19 @@ pip install -e ".[dev]"
 - `pipx install -e .` usually works better than pip
 - Or ask IT to allowlist: pypi.org, files.pythonhosted.org
 
+**"SSL: CERTIFICATE_VERIFY_FAILED" error:**
+```bash
+# Use the --no-verify-ssl flag if needed for your network environment
+trello2beads --no-verify-ssl --dry-run
+```
+
+**Alternative solutions:**
+1. Export your environment's root certificate and point Python to it:
+   ```bash
+   export SSL_CERT_FILE=/path/to/root-cert.pem
+   ```
+2. Install certificates to Python's certificate bundle (see your network administrator)
+
 **Command not found after install:**
 - Run: `pipx ensurepath` and restart your shell
 - Or manually add to PATH: `~/.local/bin` (Linux/macOS)

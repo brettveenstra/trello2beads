@@ -39,6 +39,9 @@ Usage:
     # Enable parallel execution for faster conversion (large boards)
     python3 -m trello2beads --max-workers 5
 
+    # Disable SSL verification (if needed for network environment)
+    python3 -m trello2beads --no-verify-ssl
+
 For full documentation, see README.md
 """
 
@@ -121,6 +124,14 @@ def main() -> None:
     # Check for flags
     dry_run = "--dry-run" in sys.argv or "-n" in sys.argv
     use_snapshot = "--use-snapshot" in sys.argv
+    no_verify_ssl = "--no-verify-ssl" in sys.argv
+
+    # Disable SSL warnings if --no-verify-ssl is used
+    if no_verify_ssl:
+        import urllib3
+
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        logger.info("🔓 SSL verification disabled")
 
     # Parse --max-workers flag (default: 1 for serial execution)
     max_workers = 1  # Serial execution by default (safe, backward compatible)
@@ -180,7 +191,9 @@ def main() -> None:
     snapshot_path = os.getenv("SNAPSHOT_PATH") or str(Path.cwd() / "trello_snapshot.json")
 
     # Initialize Trello client
-    trello = TrelloReader(api_key, token, board_id=board_id, board_url=board_url)
+    trello = TrelloReader(
+        api_key, token, board_id=board_id, board_url=board_url, verify_ssl=not no_verify_ssl
+    )
 
     # Pre-flight check: Validate credentials and board access
     logger.info("🔍 Validating Trello credentials and board access...")

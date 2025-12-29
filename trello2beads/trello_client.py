@@ -29,11 +29,17 @@ class TrelloReader:
     """
 
     def __init__(
-        self, api_key: str, token: str, board_id: str | None = None, board_url: str | None = None
+        self,
+        api_key: str,
+        token: str,
+        board_id: str | None = None,
+        board_url: str | None = None,
+        verify_ssl: bool = True,
     ):
         self.api_key = api_key
         self.token = token
         self.base_url = "https://api.trello.com/1"
+        self.verify_ssl = verify_ssl  # SSL certificate verification
 
         # Rate limiter: 10 requests/sec, burst up to 10
         # Conservative limit to respect Trello's 100 req/10sec token limit
@@ -102,7 +108,7 @@ class TrelloReader:
         last_exception: requests.RequestException | None = None
         for attempt in range(max_retries):
             try:
-                response = requests.get(url, params=auth_params, timeout=30)
+                response = requests.get(url, params=auth_params, timeout=30, verify=self.verify_ssl)
                 response.raise_for_status()
                 return cast(Any, response.json())
 
