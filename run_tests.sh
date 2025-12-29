@@ -27,9 +27,8 @@ NC='\033[0m' # No Color
 # Configuration (with environment variable overrides)
 VENV_DIR="${VENV_DIR:-.venv}"
 MIN_COVERAGE="${MIN_COVERAGE:-80}"
-REQUIREMENTS_FILE="${REQUIREMENTS_FILE:-requirements-dev.txt}"
 TEST_DIR="${TEST_DIR:-tests/}"
-MAIN_MODULE="${MAIN_MODULE:-}"  # Auto-detect if empty
+MAIN_MODULE="${MAIN_MODULE:-trello2beads}"  # Package to type check
 
 # Parse arguments
 QUICK_MODE=false
@@ -68,9 +67,8 @@ if [ "$HELP_MODE" = true ]; then
     echo "Configuration (environment variables):"
     echo "  VENV_DIR=${VENV_DIR}"
     echo "  MIN_COVERAGE=${MIN_COVERAGE}%"
-    echo "  REQUIREMENTS_FILE=${REQUIREMENTS_FILE}"
     echo "  TEST_DIR=${TEST_DIR}"
-    echo "  MAIN_MODULE=${MAIN_MODULE:-<auto-detect>}"
+    echo "  MAIN_MODULE=${MAIN_MODULE}"
     exit 0
 fi
 
@@ -94,15 +92,15 @@ fi
 # Step 2: Activate virtual environment
 source "$VENV_DIR/bin/activate"
 
-# Step 3: Ensure dependencies are installed
+# Step 3: Ensure package is installed in editable mode
 echo ""
 echo -e "${BLUE}📦 Checking dependencies...${NC}"
-if [ -f "$REQUIREMENTS_FILE" ]; then
+if [ -f "pyproject.toml" ]; then
     pip install -q --upgrade pip
-    pip install -q -r "$REQUIREMENTS_FILE"
-    echo -e "${GREEN}✓ Dependencies installed${NC}"
+    pip install -q -e ".[dev]"
+    echo -e "${GREEN}✓ Package installed in editable mode with dev dependencies${NC}"
 else
-    echo -e "${YELLOW}⚠️  ${REQUIREMENTS_FILE} not found, skipping dependency install${NC}"
+    echo -e "${YELLOW}⚠️  pyproject.toml not found, skipping package install${NC}"
 fi
 
 # Step 4: Run tests with coverage
@@ -178,22 +176,13 @@ echo ""
 echo -e "${BLUE}🔎 Running type checking (mypy)...${NC}"
 echo ""
 
-# Auto-detect main module if not specified
-if [ -z "$MAIN_MODULE" ]; then
-    # Find all .py files in root directory (excluding test files and setup.py)
-    MAIN_MODULE=$(find . -maxdepth 1 -name "*.py" ! -name "setup.py" ! -name "test_*.py" -type f | head -n 1)
-
-    if [ -z "$MAIN_MODULE" ]; then
-        echo -e "${YELLOW}⚠️  No main module found, skipping type checking${NC}"
-        MYPY_EXIT=0
-    else
-        echo -e "${BLUE}ℹ️  Auto-detected module: ${MAIN_MODULE}${NC}"
-    fi
-fi
-
-if [ -n "$MAIN_MODULE" ]; then
+# Check if package directory exists
+if [ ! -d "$MAIN_MODULE" ]; then
+    echo -e "${YELLOW}⚠️  Package directory '${MAIN_MODULE}' not found, skipping type checking${NC}"
+    MYPY_EXIT=0
+else
     set +e
-    mypy "$MAIN_MODULE" --ignore-missing-imports --no-strict-optional
+    mypy "$MAIN_MODULE"
     MYPY_EXIT=$?
     set -e
 
@@ -202,8 +191,6 @@ if [ -n "$MAIN_MODULE" ]; then
     else
         echo -e "${YELLOW}⚠️  Type checking issues found (exit code: $MYPY_EXIT)${NC}"
     fi
-else
-    MYPY_EXIT=0
 fi
 
 # Final summary

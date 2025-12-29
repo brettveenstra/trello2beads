@@ -25,7 +25,7 @@ wheels/
 
 # Secrets
 .secrets/
-*.env
+.env
 *_snapshot.json
 
 # Beads

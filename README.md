@@ -26,90 +26,125 @@ Migrate your Trello boards to [beads](https://github.com/steveyegge/beads) - a l
 
 ### Installation
 
-#### macOS
+Choose your path based on your needs:
+
+---
+
+## 🚀 For Users (Just Want to Use the Tool)
+
+**Best option: pipx** (recommended for corporate environments, old system Python, etc.)
 
 ```bash
-# Install Python 3.10+ (if not already installed)
-# Option 1: Using Homebrew (recommended)
-brew install python@3.12
+# 1. Install pipx (if not already installed)
+# macOS
+brew install pipx
+pipx ensurepath
 
-# Option 2: Download from python.org
-# Visit https://www.python.org/downloads/macos/
+# Linux
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
 
-# Install beads
-# Follow instructions at https://github.com/steveyegge/beads
+# Windows
+python -m pip install --user pipx
+python -m pipx ensurepath
 
-# Clone this repository
+# 2. Install trello2beads
 git clone https://github.com/brettveenstra/trello2beads.git
 cd trello2beads
+pipx install -e .
 
-# Install the package (recommended - enables running from anywhere)
-pip3 install -e .
-
-# OR just install dependencies (if you want to run from repo directory only)
-pip3 install -r requirements.txt
+# 3. The command is now available globally
+trello2beads --help
 ```
 
-#### Windows
+**Why pipx?**
+- ✅ Works with ANY system Python version (even old ones)
+- ✅ Automatically manages virtual environments (you never see them)
+- ✅ Command available globally, no activation needed
+- ✅ Perfect for corporate Macs with restrictive environments
+- ✅ No PATH issues, no version conflicts
 
-```powershell
-# Install Python 3.10+ (if not already installed)
-# Download installer from https://www.python.org/downloads/windows/
-# Make sure to check "Add Python to PATH" during installation
+---
 
-# Install beads
-# Follow instructions at https://github.com/steveyegge/beads
+## 👩‍💻 For Developers (Working on the Code)
 
-# Clone this repository (using Git Bash or PowerShell)
-git clone https://github.com/brettveenstra/trello2beads.git
-cd trello2beads
-
-# Install the package (recommended - enables running from anywhere)
-pip install -e .
-
-# OR just install dependencies (if you want to run from repo directory only)
-pip install -r requirements.txt
-```
-
-#### Linux (Ubuntu/Debian)
+**Best option: uv** (handles everything automatically)
 
 ```bash
-# Install Python 3.10+ (if not already installed)
-sudo apt update
-sudo apt install python3.12 python3-pip python3-venv
+# 1. Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh  # macOS/Linux
+# Or: brew install uv (macOS)
 
-# Install beads
-# Follow instructions at https://github.com/steveyegge/beads
-
-# Clone this repository
+# 2. Clone and install
 git clone https://github.com/brettveenstra/trello2beads.git
 cd trello2beads
 
-# Install the package (recommended - enables running from anywhere)
-pip3 install -e .
+# 3. Install in editable mode with dev dependencies
+uv pip install -e ".[dev]"
 
-# OR just install dependencies (if you want to run from repo directory only)
-pip3 install -r requirements.txt
+# 4. Command available, changes to code take effect immediately
+trello2beads --help
+pytest
 ```
 
-#### Linux (Fedora/RHEL/CentOS)
+**Why uv?**
+- ✅ Automatically manages Python versions (no pyenv needed)
+- ✅ Automatically manages virtual environments (transparent)
+- ✅ 10-100x faster than pip
+- ✅ Better dependency resolution
+- ✅ Works great on corporate networks
+
+**Alternative: Traditional pip + pyenv**
+
+If you prefer traditional tools:
 
 ```bash
-# Install Python 3.10+ (if not already installed)
-sudo dnf install python3.12 python3-pip
+# 1. Install pyenv
+brew install pyenv  # macOS
+# or: curl https://pyenv.run | bash  # Linux
 
-# Install beads
-# Follow instructions at https://github.com/steveyegge/beads
+# 2. Install Python 3.12
+pyenv install 3.12
+pyenv local 3.12
 
-# Clone this repository
+# 3. Clone and install
 git clone https://github.com/brettveenstra/trello2beads.git
 cd trello2beads
+pip install -e ".[dev]"
+```
 
-# Install the package (recommended - enables running from anywhere)
-pip3 install -e .
+---
 
-# OR just install dependencies (if you want to run from repo directory only)
-pip3 install -r requirements.txt
+## 🆘 Troubleshooting
+
+**"Python version too old" error:**
+- Use `pipx` (recommended) - it manages Python versions for you
+- Or install newer Python: `brew install python@3.12` (macOS)
+
+**"externally-managed-environment" error:**
+- Use `pipx` instead of `pip` (recommended)
+- Or use: `python3 -m pip install --user -e .`
+
+**Corporate firewall/proxy issues:**
+- `pipx install -e .` usually works better than pip
+- Or ask IT to allowlist: pypi.org, files.pythonhosted.org
+
+**Command not found after install:**
+- Run: `pipx ensurepath` and restart your shell
+- Or manually add to PATH: `~/.local/bin` (Linux/macOS)
+
+---
+
+## 📋 Install beads
+
+This tool requires the [beads](https://github.com/steveyegge/beads) CLI:
+
+```bash
+pipx install beads-project
+# Or: pip install beads-project
+
+# Verify installation
+bd --version
 ```
 
 ### Setup Credentials
@@ -185,18 +220,19 @@ set TRELLO_TOKEN=your-token-here
 set TRELLO_BOARD_URL=https://trello.com/b/ABC123/board-name
 ```
 
-Or create a `.env` file (all platforms):
+**Or create a `.env` file** (all platforms - easiest for development):
 
 ```bash
-cat > .env <<'EOF'
-TRELLO_API_KEY=your-api-key-here
-TRELLO_TOKEN=your-token-here
-TRELLO_BOARD_URL=https://trello.com/b/ABC123/my-board
-# OR use TRELLO_BOARD_ID=ABC123
-EOF
+# Copy the example file
+cp .env.example .env
+
+# Edit .env and fill in your credentials
+# TRELLO_API_KEY=your-api-key-here
+# TRELLO_TOKEN=your-token-here
+# TRELLO_BOARD_URL=https://trello.com/b/ABC123/my-board
 ```
 
-**Windows** (create `.env` file with text editor or PowerShell):
+**Windows** (PowerShell):
 
 ```powershell
 @"
@@ -831,14 +867,14 @@ A: Each issue has the Trello short link in its `external_ref` field (e.g., `trel
 
 ## Development
 
+Want to contribute? See **[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)** for setup and guidelines.
+
 This is V1 - a working, production-ready tool with a simple mapping strategy.
 
 **Roadmap**:
 - V1 (current): Hard-coded mapping, high-fidelity content preservation
 - V2 (planned): Configurable mappings (YAML config file)
 - V3 (planned): Assignee support, due dates, priority mapping
-
-See the main repository for development docs and contribution guidelines.
 
 ## Related Tools
 

@@ -1,2 +1,0 @@
-requests>=2.31.0
-urllib3<2  # v2.x requires OpenSSL 1.1.1+, not compatible with macOS LibreSSL
