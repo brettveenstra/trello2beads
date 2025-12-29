@@ -126,30 +126,28 @@ class TrelloToBeadsConverter:
 
         return base_priority
 
-    def _add_resolved_comments(self, card_id: str, beads_id: str) -> tuple[int, int]:
-        """Add Trello comments to beads issue with URL resolution.
+    def _build_comments_with_timestamps(self, card_id: str) -> list[dict]:
+        """Build comment objects with Trello timestamps preserved.
 
         Args:
             card_id: Trello card ID
-            beads_id: Beads issue ID to add comments to
 
         Returns:
-            Tuple of (comments_added, comments_failed)
+            List of comment dicts with {author, text, created_at} for JSONL
         """
         comments = self.card_comments.get(card_id, [])
         if not comments:
-            return 0, 0
+            return []
 
-        added_count = 0
-        failed_count = 0
+        comment_objects = []
 
         # Regex pattern for Trello card URLs
         trello_url_pattern = re.compile(r"(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?")
 
-        # Add comments in chronological order (Trello API returns newest first, so reverse)
+        # Build comments in chronological order (Trello API returns newest first, so reverse)
         for comment in reversed(comments):
             author = comment.get("memberCreator", {}).get("fullName", "Unknown")
-            date = comment.get("date", "")[:10]  # YYYY-MM-DD
+            created_at = comment.get("date")  # ISO 8601 timestamp from Trello
             text = comment["data"]["text"]
 
             # Resolve Trello URLs in comment text
@@ -164,28 +162,28 @@ class TrelloToBeadsConverter:
                     beads_ref = f"See {target_beads_id}"
                     resolved_text = resolved_text.replace(full_url, beads_ref)
 
-            # Format comment with timestamp
-            comment_text = f"[{date}] {resolved_text}"
+            comment_objects.append(
+                {
+                    "author": author,
+                    "text": resolved_text,
+                    "created_at": created_at,  # Preserve original Trello timestamp
+                }
+            )
 
-            try:
-                self.beads.add_comment(beads_id, comment_text, author=author)
-                added_count += 1
-            except Exception as e:
-                failed_count += 1
-                logger.warning("Failed to add comment to %s: %s", beads_id, e)
-
-        return added_count, failed_count
+        return comment_objects
 
     def _resolve_card_references(
         self,
         cards: list[dict],
         comments_by_card: dict[str, list[dict]],
         broken_references: list[str],
-    ) -> tuple[int, int, int, int, int]:
+    ) -> tuple[int, int, int]:
         """
         Second pass: Find Trello card URLs in descriptions/attachments
-        and replace with beads issue references. Also add comments as beads comments.
+        and replace with beads issue references.
         Creates "related" type dependencies for cross-references.
+
+        Note: Comments are now embedded in JSONL during import (with timestamps).
 
         Args:
             cards: List of Trello cards
@@ -193,13 +191,11 @@ class TrelloToBeadsConverter:
             broken_references: List to append broken reference URLs to
 
         Returns:
-            tuple: (resolved_count, comments_added, comments_failed, dependencies_created, dependencies_failed)
+            tuple: (resolved_count, dependencies_created, dependencies_failed)
         """
         import re
 
         resolved_count = 0
-        total_comments_added = 0
-        total_comments_failed = 0
         dependencies_created = 0
         dependencies_failed = 0
         circular_dependencies_skipped = 0  # Track cycles separately
@@ -245,15 +241,8 @@ class TrelloToBeadsConverter:
                         "Broken reference in %s: %s (card not in conversion)", beads_id, full_url
                     )
 
-            # Add comments as actual beads comments (with URL resolution)
-            comments_added, comments_failed = self._add_resolved_comments(card["id"], beads_id)
-            if comments_added > 0:
-                total_comments_added += comments_added
-                logger.info(f"  ✓ Added {comments_added} comment(s) to {beads_id}")
-            if comments_failed > 0:
-                total_comments_failed += comments_failed
-
-            # Also check comments for card references (for dependency tracking)
+            # Comments already embedded in JSONL with timestamps preserved!
+            # Check comments for card references (for dependency tracking)
             card_comments = comments_by_card.get(card["id"], [])
             for comment in card_comments:
                 comment_text = comment.get("data", {}).get("text", "")
@@ -361,11 +350,8 @@ class TrelloToBeadsConverter:
 
         return (
             resolved_count,
-            total_comments_added,
-            total_comments_failed,
             dependencies_created,
-            dependencies_failed,
-            circular_dependencies_skipped,
+            dependencies_failed + circular_dependencies_skipped,  # Total dep failures
         )
 
     def _update_description(self, issue_id: str, new_description: str) -> None:
@@ -419,7 +405,6 @@ class TrelloToBeadsConverter:
         # Track validation warnings and statistics
         validation_warnings: list[str] = []
         failed_issues: list[dict] = []
-        failed_comments: int = 0
         failed_dependencies: int = 0
         broken_references: list[str] = []
         epic_count = 0
@@ -571,7 +556,10 @@ class TrelloToBeadsConverter:
                     logger.info(f"  Children: {total_items} checklist items")
                 logger.info("")
             else:
-                # Collect issue request for batch creation
+                # Build comments with timestamps (will be embedded in JSONL)
+                comments_for_issue = self._build_comments_with_timestamps(card["id"])
+
+                # Collect issue for JSONL creation
                 issue_requests.append(
                     {
                         "title": card["name"],
@@ -581,6 +569,7 @@ class TrelloToBeadsConverter:
                         "issue_type": issue_type,
                         "labels": labels,
                         "external_ref": external_ref,
+                        "comments": comments_for_issue if comments_for_issue else None,
                     }
                 )
                 card_metadata.append(
@@ -592,13 +581,45 @@ class TrelloToBeadsConverter:
                     }
                 )
 
-        # Phase 1b: Batch create all parent issues
+        # Phase 1b: Write JSONL and import (preserves comment timestamps)
         parent_issues_created = 0  # Track parent issues (cards)
         child_issues_created = 0  # Track child issues (checklist items)
         if not dry_run and issue_requests:
-            mode = "serial" if max_workers == 1 else f"parallel, {max_workers} workers"
-            logger.info(f"Creating {len(issue_requests)} parent issues ({mode})...")
-            issue_ids = self.beads.batch_create_issues(issue_requests, max_workers=max_workers)
+            logger.info(f"Creating {len(issue_requests)} parent issues via JSONL import...")
+
+            # Get beads prefix to generate issue IDs
+            prefix = self.beads.get_prefix()
+            logger.debug(f"Using beads prefix: {prefix}")
+
+            # Generate IDs and write JSONL
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".jsonl", delete=False
+            ) as jsonl_file:
+                jsonl_path = jsonl_file.name
+                for i, issue in enumerate(issue_requests):
+                    # Generate beads-style ID
+                    issue_id = self.beads.generate_issue_id(prefix, i)
+                    issue["id"] = issue_id
+
+                    # Remove None comments field (beads doesn't like null)
+                    if issue.get("comments") is None:
+                        del issue["comments"]
+
+                    # Write JSONL line
+                    jsonl_file.write(json.dumps(issue) + "\n")
+
+            # Import JSONL (preserves comment timestamps!)
+            try:
+                external_ref_to_id = self.beads.import_from_jsonl(jsonl_path)
+                logger.info(f"✅ Imported {len(external_ref_to_id)} parent issues")
+
+                # Build issue_ids list for compatibility with existing code
+                issue_ids = [issue["id"] for issue in issue_requests]
+            finally:
+                # Clean up temp file
+                Path(jsonl_path).unlink(missing_ok=True)
 
             # Phase 1c: Post-process - build mappings and handle checklists
             for issue_id, meta in zip(issue_ids, card_metadata, strict=True):
@@ -690,38 +711,28 @@ class TrelloToBeadsConverter:
                                     e,
                                 )
 
-        # SECOND PASS: Resolve Trello card references and add comments (if not dry run)
-        comments_added = 0
+        # SECOND PASS: Resolve Trello card references (if not dry run)
+        # Note: Comments already embedded in JSONL during import with timestamps!
         related_dependencies_created = 0
-        circular_dependencies_skipped = 0
         if not dry_run and self.trello_to_beads:
             logger.info("")
-            logger.info("🔄 Pass 2: Resolving Trello card references and adding comments...")
+            logger.info("🔄 Pass 2: Resolving Trello card references...")
             (
                 resolved_count,
-                comments_added,
-                failed_comments_pass2,
                 related_dependencies_created,
                 failed_dependencies_pass2,
-                circular_dependencies_skipped,
             ) = self._resolve_card_references(cards_sorted, comments_by_card, broken_references)
 
             # Update totals
-            failed_comments += failed_comments_pass2
             failed_dependencies += failed_dependencies_pass2
 
             logger.info(f"✅ Resolved {resolved_count} Trello card references")
-            logger.info(f"✅ Added {comments_added} comments to beads issues")
-            if failed_comments > 0:
-                logger.warning(f"⚠️  Failed to add {failed_comments} comments")
             logger.info(f"✅ Created {related_dependencies_created} related dependencies")
-            if circular_dependencies_skipped > 0:
-                logger.info(
-                    f"ℹ️  Skipped {circular_dependencies_skipped} circular dependencies "
-                    "(Trello allows cycles, beads doesn't)"
-                )
             if failed_dependencies > 0:
-                logger.warning(f"⚠️  Failed to create {failed_dependencies} dependencies")
+                logger.warning(
+                    f"⚠️  Failed to create {failed_dependencies} dependencies "
+                    "(includes circular dependencies - Trello allows cycles, beads doesn't)"
+                )
 
         # Summary report
         logger.info("")
@@ -753,7 +764,8 @@ class TrelloToBeadsConverter:
             logger.info(f"  Attachments: {attachments_count} cards")
             logger.info(f"  Labels: {labels_count} cards")
             logger.info(
-                f"  Comments: {comments_added} added as beads comments (from {comments_count} cards)"
+                f"  Comments: {comments_count} cards with comments "
+                "(embedded in issues with original Trello timestamps)"
             )
             logger.info(
                 f"  Dependencies: {related_dependencies_created} related dependencies created"
@@ -766,7 +778,7 @@ class TrelloToBeadsConverter:
             logger.info(f"  Regular Tasks: {parent_issues_created - epic_count}")
 
             # Validation Report
-            total_failures = len(failed_issues) + failed_comments + failed_dependencies
+            total_failures = len(failed_issues) + failed_dependencies
             has_issues = (
                 total_failures > 0 or len(validation_warnings) > 0 or len(broken_references) > 0
             )
@@ -801,10 +813,6 @@ class TrelloToBeadsConverter:
                         )
                     if len(failed_issues) > 5:
                         logger.info(f"    ... and {len(failed_issues) - 5} more")
-
-                # Failed comments
-                if failed_comments > 0:
-                    logger.info(f"\n  Failed Comments: {failed_comments}")
 
                 # Failed dependencies
                 if failed_dependencies > 0:

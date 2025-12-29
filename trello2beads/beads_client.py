@@ -919,3 +919,151 @@ class BeadsWriter:
                 stderr=result.stderr,
                 returncode=result.returncode,
             ) from e
+
+    def generate_issue_id(self, prefix: str, index: int) -> str:
+        """Generate a beads-style issue ID.
+
+        Args:
+            prefix: Database prefix (e.g., "myproject")
+            index: Sequential index for uniqueness
+
+        Returns:
+            Issue ID like "myproject-abc123"
+        """
+        import hashlib
+
+        # Generate hash from prefix + index for uniqueness
+        content = f"{prefix}-{index}"
+        hash_digest = hashlib.sha256(content.encode()).digest()
+
+        # Base62 encode (similar to beads)
+        base62_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        num = int.from_bytes(hash_digest[:6], "big")  # Use first 6 bytes
+        result = []
+        while num > 0:
+            result.append(base62_chars[num % 62])
+            num //= 62
+
+        short_hash = "".join(reversed(result))[:7]  # 7 chars like beads
+        return f"{prefix}-{short_hash}"
+
+    def get_prefix(self) -> str:
+        """Get the beads database prefix.
+
+        Returns:
+            The prefix (e.g., "myproject")
+
+        Raises:
+            BeadsUpdateError: If prefix retrieval fails
+        """
+        cmd = ["bd"]
+
+        if self.db_path:
+            cmd.extend(["--db", self.db_path])
+
+        cmd.extend(["config", "get", "prefix"])
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=10)
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            raise BeadsUpdateError(
+                f"Failed to get prefix: {e}",
+                command=cmd,
+            ) from e
+
+        if result.returncode != 0:
+            raise BeadsUpdateError(
+                f"Failed to get prefix\nError: {result.stderr}",
+                command=cmd,
+                stderr=result.stderr,
+                returncode=result.returncode,
+            )
+
+        return result.stdout.strip()
+
+    def import_from_jsonl(self, jsonl_path: str) -> dict[str, str]:
+        """Import issues from JSONL file (preserves comment timestamps).
+
+        Args:
+            jsonl_path: Path to JSONL file containing issues with embedded comments
+
+        Returns:
+            Mapping of external_ref -> issue_id for imported issues
+
+        Raises:
+            ValueError: If jsonl_path is invalid
+            BeadsUpdateError: If import fails
+
+        Example:
+            >>> id_map = writer.import_from_jsonl("issues_to_import.jsonl")
+            >>> # {'trello:abc': 'proj-123', 'trello:def': 'proj-456'}
+        """
+        if not jsonl_path or not jsonl_path.strip():
+            raise ValueError("JSONL path cannot be empty")
+
+        jsonl_file = Path(jsonl_path)
+        if not jsonl_file.exists():
+            raise ValueError(f"JSONL file not found: {jsonl_path}")
+
+        cmd = ["bd"]
+
+        if self.db_path:
+            cmd.extend(["--db", self.db_path])
+
+        cmd.extend(["import", "-i", str(jsonl_file)])
+
+        logger.info("Importing issues from JSONL: %s", jsonl_path)
+        logger.debug("Command: %s", " ".join(cmd))
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=300,  # 5 min timeout for large imports
+            )
+        except subprocess.TimeoutExpired as e:
+            raise BeadsUpdateError(
+                f"Import timed out after 300s",
+                command=cmd,
+            ) from e
+        except FileNotFoundError as e:
+            raise BeadsUpdateError(
+                "bd command not found. Is beads installed?",
+                command=cmd,
+            ) from e
+
+        if result.returncode != 0:
+            error_msg = (
+                f"Failed to import JSONL.\n"
+                f"File: {jsonl_path}\n"
+                f"Command: {' '.join(cmd)}\n"
+                f"Exit code: {result.returncode}\n"
+                f"Error output: {result.stderr.strip() if result.stderr else '(none)'}\n"
+            )
+            logger.error("JSONL import failed: %s", error_msg)
+            raise BeadsUpdateError(
+                error_msg,
+                command=cmd,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                returncode=result.returncode,
+            )
+
+        logger.info("✅ Import completed successfully")
+        if result.stdout:
+            logger.debug("Import output: %s", result.stdout)
+
+        # Build mapping: read back the JSONL to get external_ref -> id mapping
+        # (bd import doesn't return this info, so we query the imported issues)
+        external_ref_to_id = {}
+        with open(jsonl_file) as f:
+            for line in f:
+                issue_data = json.loads(line)
+                external_ref = issue_data.get("external_ref")
+                issue_id = issue_data.get("id")
+                if external_ref and issue_id:
+                    external_ref_to_id[external_ref] = issue_id
+
+        return external_ref_to_id
