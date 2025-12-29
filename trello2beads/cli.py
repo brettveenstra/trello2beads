@@ -42,6 +42,9 @@ Usage:
     # Disable SSL verification (if needed for network environment)
     python3 -m trello2beads --no-verify-ssl
 
+    # Test connection and credentials
+    python3 -m trello2beads --test-connection
+
 For full documentation, see README.md
 """
 
@@ -125,6 +128,7 @@ def main() -> None:
     dry_run = "--dry-run" in sys.argv or "-n" in sys.argv
     use_snapshot = "--use-snapshot" in sys.argv
     no_verify_ssl = "--no-verify-ssl" in sys.argv
+    test_connection = "--test-connection" in sys.argv
 
     # Disable SSL warnings if --no-verify-ssl is used
     if no_verify_ssl:
@@ -195,6 +199,80 @@ def main() -> None:
         api_key, token, board_id=board_id, board_url=board_url, verify_ssl=not no_verify_ssl
     )
 
+    # Test connection mode - detailed diagnostics
+    if test_connection:
+        logger.info("🔍 Testing connection to Trello API...")
+        logger.info(f"   API Key: {api_key[:8]}...{api_key[-4:]}")
+        logger.info(f"   Token: {token[:8]}...{token[-4:]}")
+        logger.info(f"   SSL Verification: {'Enabled' if not no_verify_ssl else 'Disabled'}")
+        logger.info("")
+
+        # Test 1: Basic connectivity
+        logger.info("📡 Test 1: Basic connectivity to api.trello.com...")
+        try:
+            import socket
+
+            socket.create_connection(("api.trello.com", 443), timeout=5)
+            logger.info("   ✅ Can reach api.trello.com:443")
+        except Exception as e:
+            logger.error(f"   ❌ Cannot reach api.trello.com: {e}")
+            logger.error("   Check your network connection, proxy settings, or firewall")
+            sys.exit(1)
+
+        # Test 2: HTTPS request
+        logger.info("📡 Test 2: HTTPS GET request...")
+        try:
+            import requests
+
+            response = requests.get(
+                "https://api.trello.com/1/members/me",
+                params={"key": api_key, "token": token, "fields": "id,username"},
+                timeout=10,
+                verify=not no_verify_ssl,
+            )
+            logger.info(f"   Status: {response.status_code}")
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"   ✅ Authenticated as: {data.get('username', 'unknown')}")
+            else:
+                logger.error(f"   ❌ HTTP {response.status_code}: {response.text[:200]}")
+                sys.exit(1)
+        except requests.exceptions.SSLError as e:
+            logger.error(f"   ❌ SSL Error: {e}")
+            logger.error("   Try using --no-verify-ssl flag")
+            sys.exit(1)
+        except requests.exceptions.RequestException as e:
+            logger.error(f"   ❌ Request failed: {e}")
+            sys.exit(1)
+
+        # Test 3: List boards
+        logger.info("📡 Test 3: Fetching your boards...")
+        try:
+            boards = trello.list_boards(filter_status="open")
+            logger.info(f"   ✅ Found {len(boards)} open boards")
+            if boards:
+                logger.info("   First 5 boards:")
+                for board in boards[:5]:
+                    logger.info(f"      - {board['name']} ({board['id']})")
+        except Exception as e:
+            logger.error(f"   ❌ Failed to list boards: {e}")
+            sys.exit(1)
+
+        # Test 4: Board access (if board_id provided)
+        if board_id or board_url:
+            logger.info(f"📡 Test 4: Checking board access (ID: {trello.board_id})...")
+            try:
+                board = trello.get_board()
+                logger.info(f"   ✅ Board accessible: {board.get('name', 'unknown')}")
+            except Exception as e:
+                logger.error(f"   ❌ Cannot access board: {e}")
+                sys.exit(1)
+
+        logger.info("")
+        logger.info("✅ All connection tests passed!")
+        logger.info("   Your credentials and network setup are working correctly.")
+        sys.exit(0)
+
     # Pre-flight check: Validate credentials and board access
     logger.info("🔍 Validating Trello credentials and board access...")
     try:
@@ -203,6 +281,7 @@ def main() -> None:
         logger.info("")
     except Exception as e:
         logger.error(f"❌ Validation failed: {e}")
+        logger.error("\nFor detailed diagnostics, run: trello2beads --test-connection")
         sys.exit(1)
 
     # Initialize beads client and converter
