@@ -957,6 +957,10 @@ class BeadsWriter:
         Raises:
             BeadsUpdateError: If prefix retrieval fails
         """
+        if self.dry_run:
+            logger.debug("[DRY RUN] Would get beads prefix")
+            return "test-prefix"
+
         cmd = ["bd"]
 
         if self.db_path:
@@ -1005,6 +1009,20 @@ class BeadsWriter:
         jsonl_file = Path(jsonl_path)
         if not jsonl_file.exists():
             raise ValueError(f"JSONL file not found: {jsonl_path}")
+
+        # In dry-run mode, just read the JSONL and return the mapping
+        if self.dry_run:
+            logger.info("[DRY RUN] Would import issues from JSONL: %s", jsonl_path)
+            external_ref_to_id = {}
+            with open(jsonl_file) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    external_ref = issue_data.get("external_ref")
+                    issue_id = issue_data.get("id")
+                    if external_ref and issue_id:
+                        external_ref_to_id[external_ref] = issue_id
+                        logger.debug("[DRY RUN] Would import: %s -> %s", external_ref, issue_id)
+            return external_ref_to_id
 
         cmd = ["bd"]
 
