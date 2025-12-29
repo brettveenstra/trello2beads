@@ -32,12 +32,55 @@ def mock_bd_cli():
 
     def mock_subprocess_run(cmd, *args, **kwargs):
         """Mock subprocess.run to capture bd commands"""
+        import json
+
         result = Mock()
         result.returncode = 0
         result.stderr = ""
 
         if cmd[0] == "bd" and len(cmd) > 1:
-            if cmd[1] == "create":
+            if cmd[1] == "config" and len(cmd) > 2 and cmd[2] == "get" and cmd[3] == "prefix":
+                # Mock: bd config get prefix
+                result.stdout = "testproject\n"
+
+            elif "import" in cmd:
+                # Mock: bd [--db <path>] import -i <jsonl_path>
+                # Find the -i flag and get the JSONL path after it
+                jsonl_path = None
+                for i, arg in enumerate(cmd):
+                    if arg == "-i" and i + 1 < len(cmd):
+                        jsonl_path = cmd[i + 1]
+                        break
+
+                if jsonl_path:
+                    # Read JSONL file and extract issues
+                    with open(jsonl_path) as f:
+                        for line in f:
+                            issue_data = json.loads(line)
+                            # Extract relevant fields
+                            created_issues.append(
+                                {
+                                    "id": issue_data.get("id"),
+                                    "title": issue_data.get("title"),
+                                    "description": issue_data.get("description"),
+                                    "status": issue_data.get("status"),
+                                    "labels": issue_data.get("labels", []),
+                                }
+                            )
+                            # Also capture comments if they exist in the JSONL
+                            comments = issue_data.get("comments", [])
+                            for comment in comments:
+                                created_issues.append(
+                                    {
+                                        "_type": "comment",
+                                        "issue_id": issue_data.get("id"),
+                                        "text": comment.get("text"),
+                                        "author": comment.get("author"),
+                                    }
+                                )
+                    result.stdout = f"✓ Imported {len(created_issues)} issues\n"
+
+            elif cmd[1] == "create":
                 # Generate fake issue ID
                 issue_counter[0] += 1
                 issue_id = f"testproject-{issue_counter[0]:03d}"
@@ -249,9 +292,10 @@ class TestBoardWithComments:
             comment_commands = [cmd for cmd in mock_bd_cli if cmd.get("_type") == "comment"]
             assert len(comment_commands) == 3  # Total comments across all cards
 
-            # Verify Dark Mode card has 2 comments
+            # Verify Dark Mode card has 2 comments (use actual issue ID from created issue)
+            dark_mode_issue_id = dark_mode_issue.get("id")
             dark_mode_comments = [
-                cmd for cmd in comment_commands if cmd.get("issue_id") == "testproject-001"
+                cmd for cmd in comment_commands if cmd.get("issue_id") == dark_mode_issue_id
             ]
             assert len(dark_mode_comments) == 2
 
