@@ -593,7 +593,8 @@ class TrelloToBeadsConverter:
                 )
 
         # Phase 1b: Batch create all parent issues
-        created_count = 0
+        parent_issues_created = 0  # Track parent issues (cards)
+        child_issues_created = 0  # Track child issues (checklist items)
         if not dry_run and issue_requests:
             mode = "serial" if max_workers == 1 else f"parallel, {max_workers} workers"
             logger.info(f"Creating {len(issue_requests)} parent issues ({mode})...")
@@ -629,7 +630,9 @@ class TrelloToBeadsConverter:
                     epic_count += 1
                 else:
                     logger.info(f"✅ Created {issue_id}: {card['name']} (list:{list_name})")
-                created_count += 1
+
+                # Both epic and regular cards are parent cards
+                parent_issues_created += 1
 
                 # Create child issues for checklist items (keep serial for MVP)
                 if has_checklists:
@@ -669,7 +672,7 @@ class TrelloToBeadsConverter:
 
                                 status_icon = "✓" if item_state == "complete" else "☐"
                                 logger.info(f"  └─ {status_icon} Created {child_id}: {item_name}")
-                                created_count += 1
+                                child_issues_created += 1
                                 child_task_count += 1
 
                             except Exception as e:
@@ -728,10 +731,15 @@ class TrelloToBeadsConverter:
         logger.info(f"Lists: {len(lists)}")
         logger.info(f"Total Cards: {len(cards)}")
 
+        total_issues_created = parent_issues_created + child_issues_created
+
         if dry_run:
-            logger.info(f"\n🎯 Dry run complete. Would create {len(cards)} issues")
+            logger.info(f"\n🎯 Dry run complete. Would create {len(cards)} parent issues")
         else:
-            logger.info(f"Issues Created: {created_count}/{len(cards)}")
+            logger.info(f"Parent Issues Created: {parent_issues_created}/{len(cards)} cards")
+            if child_issues_created > 0:
+                logger.info(f"Child Issues Created: {child_issues_created} (from checklists)")
+            logger.info(f"Total Issues Created: {total_issues_created}")
 
             # Count preserved features
             checklists_count = sum(1 for c in cards if c.get("checklists"))
@@ -752,9 +760,9 @@ class TrelloToBeadsConverter:
 
             # Issue type breakdown
             logger.info("\nIssue Types:")
-            logger.info(f"  Epics: {epic_count}")
-            logger.info(f"  Child Tasks: {child_task_count}")
-            logger.info(f"  Regular Tasks: {created_count - epic_count - child_task_count}")
+            logger.info(f"  Epics: {epic_count} (cards with checklists)")
+            logger.info(f"  Child Tasks: {child_task_count} (from checklist items)")
+            logger.info(f"  Regular Tasks: {parent_issues_created - epic_count}")
 
             # Validation Report
             total_failures = len(failed_issues) + failed_comments + failed_dependencies
@@ -765,14 +773,14 @@ class TrelloToBeadsConverter:
             if has_issues:
                 logger.warning("\n⚠️  VALIDATION REPORT:")
 
-                # Calculate success rate
+                # Calculate success rate (for parent cards only)
                 total_attempted = len(cards)
-                total_succeeded = created_count
+                total_succeeded = parent_issues_created
                 success_rate = (
                     (total_succeeded / total_attempted * 100) if total_attempted > 0 else 0
                 )
                 logger.info(
-                    f"  Success Rate: {success_rate:.1f}% ({total_succeeded}/{total_attempted} cards)"
+                    f"  Card Success Rate: {success_rate:.1f}% ({total_succeeded}/{total_attempted})"
                 )
 
                 # Validation warnings
