@@ -202,9 +202,29 @@ def main() -> None:
     # Test connection mode - detailed diagnostics
     if test_connection:
         logger.info("🔍 Testing connection to Trello API...")
-        logger.info(f"   API Key: {api_key[:8]}...{api_key[-4:]}")
-        logger.info(f"   Token: {token[:8]}...{token[-4:]}")
+        logger.info(f"   API Key: {api_key[:8]}...{api_key[-4:]} (length: {len(api_key)})")
+        logger.info(f"   Token: {token[:8]}...{token[-4:]} (length: {len(token)})")
         logger.info(f"   SSL Verification: {'Enabled' if not no_verify_ssl else 'Disabled'}")
+
+        # Check for common issues
+        warnings = []
+        if api_key != api_key.strip():
+            warnings.append("⚠️  API Key has leading/trailing whitespace")
+        if token != token.strip():
+            warnings.append("⚠️  Token has leading/trailing whitespace")
+        if len(api_key) != 32:
+            warnings.append(f"⚠️  API Key should be 32 characters, got {len(api_key)}")
+        if len(token) != 64:
+            warnings.append(f"⚠️  Token should be 64 characters, got {len(token)}")
+        if '"' in api_key or "'" in api_key:
+            warnings.append("⚠️  API Key contains quotes (remove them)")
+        if '"' in token or "'" in token:
+            warnings.append("⚠️  Token contains quotes (remove them)")
+
+        if warnings:
+            logger.warning("")
+            for warning in warnings:
+                logger.warning(f"   {warning}")
         logger.info("")
 
         # Test 1: Basic connectivity
@@ -223,17 +243,37 @@ def main() -> None:
         logger.info("📡 Test 2: HTTPS GET request...")
         try:
             import requests
+            from urllib.parse import urlencode
+
+            params = {"key": api_key.strip(), "token": token.strip(), "fields": "id,username"}
+            test_url = "https://api.trello.com/1/members/me"
+
+            # Show the URL format (without actual credentials)
+            logger.info(f"   URL: {test_url}?key=<hidden>&token=<hidden>&fields=id,username")
 
             response = requests.get(
-                "https://api.trello.com/1/members/me",
-                params={"key": api_key, "token": token, "fields": "id,username"},
+                test_url,
+                params=params,
                 timeout=10,
                 verify=not no_verify_ssl,
             )
             logger.info(f"   Status: {response.status_code}")
+
             if response.status_code == 200:
                 data = response.json()
                 logger.info(f"   ✅ Authenticated as: {data.get('username', 'unknown')}")
+            elif response.status_code == 401:
+                logger.error(f"   ❌ HTTP 401: Authentication failed")
+                logger.error(f"   Response: {response.text[:300]}")
+                logger.error("")
+                logger.error("   Troubleshooting steps:")
+                logger.error("   1. Verify API Key at: https://trello.com/power-ups/admin")
+                logger.error("   2. Generate a NEW token (tokens can expire or be revoked)")
+                logger.error("   3. Check for extra quotes or whitespace in your credentials")
+                logger.error("   4. Make sure you're using:")
+                logger.error("      export TRELLO_API_KEY='your-key-here'  (no extra quotes inside)")
+                logger.error("      export TRELLO_TOKEN='your-token-here'")
+                sys.exit(1)
             else:
                 logger.error(f"   ❌ HTTP {response.status_code}: {response.text[:200]}")
                 sys.exit(1)
