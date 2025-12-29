@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import subprocess
+from pathlib import Path
 
 from trello2beads.exceptions import (
     BeadsCommandError,
@@ -1025,7 +1026,7 @@ class BeadsWriter:
             )
         except subprocess.TimeoutExpired as e:
             raise BeadsUpdateError(
-                f"Import timed out after 300s",
+                "Import timed out after 300s",
                 command=cmd,
             ) from e
         except FileNotFoundError as e:

@@ -243,7 +243,6 @@ def main() -> None:
         logger.info("📡 Test 2: HTTPS GET request...")
         try:
             import requests
-            from urllib.parse import urlencode
 
             params = {"key": api_key.strip(), "token": token.strip(), "fields": "id,username"}
             test_url = "https://api.trello.com/1/members/me"
@@ -263,7 +262,7 @@ def main() -> None:
                 data = response.json()
                 logger.info(f"   ✅ Authenticated as: {data.get('username', 'unknown')}")
             elif response.status_code == 401:
-                logger.error(f"   ❌ HTTP 401: Authentication failed")
+                logger.error("   ❌ HTTP 401: Authentication failed")
                 logger.error(f"   Response: {response.text[:300]}")
                 logger.error("")
                 logger.error("   Troubleshooting steps:")
