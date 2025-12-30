@@ -66,6 +66,8 @@ class TestBasicCardConversion:
 
     def test_convert_single_card_minimal(self):
         """Should convert a single card with minimal data"""
+        import json
+
         # Setup mocks
         mock_trello = MagicMock(spec=TrelloReader)
         mock_trello.get_board.return_value = {
@@ -90,24 +92,31 @@ class TestBasicCardConversion:
         ]
 
         with patch.object(BeadsWriter, "_check_bd_available"):
-            mock_beads = BeadsWriter(dry_run=True)
+            mock_beads = BeadsWriter(dry_run=False)
 
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
-        # Patch create_issue to track calls
-        created_issues = []
+        # Mock JSONL import methods
+        captured_jsonl_data = []
 
-        def mock_create_issue(**kwargs):
-            issue_id = f"test-{len(created_issues)}"
-            created_issues.append({"id": issue_id, **kwargs})
-            return issue_id
+        def mock_import_from_jsonl(jsonl_path):
+            # Read and capture the JSONL content
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            # Return mapping of external_ref to issue_id
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
 
-        with patch.object(converter.beads, "create_issue", side_effect=mock_create_issue):
+        with (
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
+        ):
             converter.convert()
 
-        # Verify issue was created
-        assert len(created_issues) == 1
-        issue = created_issues[0]
+        # Verify issue was created via JSONL
+        assert len(captured_jsonl_data) == 1
+        issue = captured_jsonl_data[0]
 
         assert issue["title"] == "Test Card"
         assert issue["description"] == "Simple description"
@@ -116,9 +125,12 @@ class TestBasicCardConversion:
         assert issue["external_ref"] == "trello:abc"
         assert issue["priority"] == 2
         assert issue["issue_type"] == "task"
+        assert "id" in issue  # JSONL should include generated ID
 
     def test_convert_card_with_trello_labels(self):
         """Should preserve Trello labels in beads labels"""
+        import json
+
         mock_trello = MagicMock(spec=TrelloReader)
         mock_trello.get_board.return_value = {
             "id": "board123",
@@ -145,23 +157,28 @@ class TestBasicCardConversion:
         ]
 
         with patch.object(BeadsWriter, "_check_bd_available"):
-            mock_beads = BeadsWriter(dry_run=True)
+            mock_beads = BeadsWriter(dry_run=False)
 
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
-        created_issues = []
+        captured_jsonl_data = []
 
-        def mock_create_issue(**kwargs):
-            issue_id = f"test-{len(created_issues)}"
-            created_issues.append({"id": issue_id, **kwargs})
-            return issue_id
+        def mock_import_from_jsonl(jsonl_path):
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
 
-        with patch.object(converter.beads, "create_issue", side_effect=mock_create_issue):
+        with (
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
+        ):
             converter.convert()
 
         # Verify labels
-        assert len(created_issues) == 1
-        issue = created_issues[0]
+        assert len(captured_jsonl_data) == 1
+        issue = captured_jsonl_data[0]
 
         assert "list:Doing" in issue["labels"]
         assert "trello-label:urgent" in issue["labels"]
@@ -221,37 +238,44 @@ class TestBasicCardConversion:
         ]
 
         with patch.object(BeadsWriter, "_check_bd_available"):
-            mock_beads = BeadsWriter(dry_run=True)
+            mock_beads = BeadsWriter(dry_run=False)
 
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
-        created_issues = []
+        captured_jsonl_data = []
 
-        def mock_create_issue(**kwargs):
-            issue_id = f"test-{len(created_issues)}"
-            created_issues.append({"id": issue_id, **kwargs})
-            return issue_id
+        def mock_import_from_jsonl(jsonl_path):
+            import json
 
-        with patch.object(converter.beads, "create_issue", side_effect=mock_create_issue):
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
+
+        with (
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
+        ):
             converter.convert()
 
         # Verify all cards converted with correct status
-        assert len(created_issues) == 3
+        assert len(captured_jsonl_data) == 3
 
         # Card 1: To Do → open
-        assert created_issues[0]["title"] == "Card 1"
-        assert created_issues[0]["status"] == "open"
-        assert "list:To Do" in created_issues[0]["labels"]
+        assert captured_jsonl_data[0]["title"] == "Card 1"
+        assert captured_jsonl_data[0]["status"] == "open"
+        assert "list:To Do" in captured_jsonl_data[0]["labels"]
 
         # Card 2: Doing → in_progress
-        assert created_issues[1]["title"] == "Card 2"
-        assert created_issues[1]["status"] == "in_progress"
-        assert "list:Doing" in created_issues[1]["labels"]
+        assert captured_jsonl_data[1]["title"] == "Card 2"
+        assert captured_jsonl_data[1]["status"] == "in_progress"
+        assert "list:Doing" in captured_jsonl_data[1]["labels"]
 
         # Card 3: Done → closed
-        assert created_issues[2]["title"] == "Card 3"
-        assert created_issues[2]["status"] == "closed"
-        assert "list:Done" in created_issues[2]["labels"]
+        assert captured_jsonl_data[2]["title"] == "Card 3"
+        assert captured_jsonl_data[2]["status"] == "closed"
+        assert "list:Done" in captured_jsonl_data[2]["labels"]
 
     def test_convert_builds_mapping_structures(self):
         """Should build trello_to_beads and card_url_map during conversion"""
@@ -278,20 +302,32 @@ class TestBasicCardConversion:
         ]
 
         with patch.object(BeadsWriter, "_check_bd_available"):
-            mock_beads = BeadsWriter(dry_run=True)
+            mock_beads = BeadsWriter(dry_run=False)
 
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
-        def mock_create_issue(**kwargs):
-            return "test-abc"
+        captured_jsonl_data = []
 
-        with patch.object(converter.beads, "create_issue", side_effect=mock_create_issue):
+        def mock_import_from_jsonl(jsonl_path):
+            import json
+
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
+
+        with (
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
+        ):
             converter.convert()
 
         # Verify mappings built
-        assert converter.trello_to_beads["card1"] == "test-abc"
-        assert converter.card_url_map["abc123"] == "test-abc"
-        assert converter.card_url_map["https://trello.com/c/abc123"] == "test-abc"
+        test_id = captured_jsonl_data[0]["id"]
+        assert converter.trello_to_beads["card1"] == test_id
+        assert converter.card_url_map["abc123"] == test_id
+        assert converter.card_url_map["https://trello.com/c/abc123"] == test_id
 
 
 class TestDryRunMode:
@@ -464,28 +500,41 @@ class TestDescriptionBuilding:
         mock_trello.get_card_comments.return_value = []
 
         with patch.object(BeadsWriter, "_check_bd_available"):
-            mock_beads = BeadsWriter(dry_run=True)
+            mock_beads = BeadsWriter(dry_run=False)
 
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
-        created_issues = []
+        captured_jsonl_data = []
+        created_child_issues = []
 
-        def mock_create_issue(**kwargs):
-            issue_id = f"test-{len(created_issues)}"
-            created_issues.append({"id": issue_id, **kwargs})
+        def mock_import_from_jsonl(jsonl_path):
+            import json
+
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
+
+        def mock_create_child(**kwargs):
+            issue_id = f"test-child-{len(created_child_issues)}"
+            created_child_issues.append({"id": issue_id, **kwargs})
             return issue_id
 
         with (
-            patch.object(converter.beads, "create_issue", side_effect=mock_create_issue),
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
             patch.object(converter.beads, "add_dependency"),
+            patch.object(converter.beads, "create_issue", side_effect=mock_create_child),
         ):
             converter.convert()
 
-        # Should create 1 epic + 2 child tasks = 3 issues
-        assert len(created_issues) == 3
+        # Should create 1 epic (via JSONL) + 2 child tasks (via create_issue) = 3 issues total
+        assert len(captured_jsonl_data) == 1  # Epic parent
+        assert len(created_child_issues) == 2  # Child items
 
         # First issue should be the epic
-        epic = created_issues[0]
+        epic = captured_jsonl_data[0]
         assert epic["issue_type"] == "epic"
         assert epic["title"] == "Card with Checklist"
         assert "Main description" in epic["description"]
@@ -493,13 +542,13 @@ class TestDescriptionBuilding:
         assert "## Checklists" not in epic["description"]
 
         # Second issue should be completed child task
-        child1 = created_issues[1]
+        child1 = created_child_issues[0]
         assert child1["issue_type"] == "task"
         assert child1["title"] == "Install dependencies"
         assert child1["status"] == "closed"  # complete
 
         # Third issue should be incomplete child task
-        child2 = created_issues[2]
+        child2 = created_child_issues[1]
         assert child2["issue_type"] == "task"
         assert child2["title"] == "Configure settings"
         assert child2["status"] == "open"  # incomplete
@@ -540,23 +589,30 @@ class TestDescriptionBuilding:
         ]
 
         with patch.object(BeadsWriter, "_check_bd_available"):
-            mock_beads = BeadsWriter(dry_run=True)
+            mock_beads = BeadsWriter(dry_run=False)
 
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
-        created_issues = []
+        captured_jsonl_data = []
 
-        def mock_create_issue(**kwargs):
-            issue_id = f"test-{len(created_issues)}"
-            created_issues.append({"id": issue_id, **kwargs})
-            return issue_id
+        def mock_import_from_jsonl(jsonl_path):
+            import json
 
-        with patch.object(converter.beads, "create_issue", side_effect=mock_create_issue):
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
+
+        with (
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
+        ):
             converter.convert()
 
         # Verify attachments were embedded in description
-        assert len(created_issues) == 1
-        desc = created_issues[0]["description"]
+        assert len(captured_jsonl_data) == 1
+        desc = captured_jsonl_data[0]["description"]
 
         assert "## Attachments" in desc
         assert "screenshot.png" in desc
@@ -609,48 +665,55 @@ class TestCommentFetching:
         ]
 
         with patch.object(BeadsWriter, "_check_bd_available"):
-            mock_beads = BeadsWriter(dry_run=True)
+            mock_beads = BeadsWriter(dry_run=False)
 
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
-        created_issues = []
+        captured_jsonl_data = []
 
-        def mock_create_issue(**kwargs):
-            issue_id = f"test-{len(created_issues)}"
-            created_issues.append({"id": issue_id, **kwargs})
-            return issue_id
+        def mock_import_from_jsonl(jsonl_path):
+            import json
+
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
 
         with (
-            patch.object(converter.beads, "create_issue", side_effect=mock_create_issue),
-            patch.object(converter.beads, "add_comment") as mock_add_comment,
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
         ):
             converter.convert()
 
-            # Verify comments were fetched
-            mock_trello.get_card_comments.assert_called_once_with("card1")
+        # Verify comments were fetched
+        mock_trello.get_card_comments.assert_called_once_with("card1")
 
-            # Verify comments added as real beads comments (not embedded in description)
-            assert len(created_issues) == 1
-            desc = created_issues[0]["description"]
+        # Verify issue created with comments embedded in JSONL
+        assert len(captured_jsonl_data) == 1
+        issue = captured_jsonl_data[0]
+        desc = issue["description"]
 
-            # Comments should NOT be in description anymore
-            assert "## Comments" not in desc
+        # Comments should NOT be in description anymore
+        assert "## Comments" not in desc
 
-            # Verify add_comment was called with resolved comments
-            assert mock_add_comment.call_count == 2
-            # Comments are added oldest first
-            first_call = mock_add_comment.call_args_list[0]
-            second_call = mock_add_comment.call_args_list[1]
+        # Verify comments are in the JSONL data
+        assert "comments" in issue
+        assert len(issue["comments"]) == 2
 
-            # Check first comment (oldest)
-            assert first_call[0][0] == "test-0"  # issue_id
-            assert "[2024-01-15] First comment" in first_call[0][1]  # text with timestamp
-            assert first_call[1]["author"] == "John Doe"
+        # Comments are stored oldest first in JSONL
+        first_comment = issue["comments"][0]
+        second_comment = issue["comments"][1]
 
-            # Check second comment
-            assert second_call[0][0] == "test-0"
-            assert "[2024-01-16] Second comment" in second_call[0][1]
-            assert second_call[1]["author"] == "Jane Smith"
+        # Check first comment (oldest)
+        assert "First comment" in first_comment["text"]
+        assert first_comment["author"] == "John Doe"
+        assert first_comment["created_at"] == "2024-01-15T10:30:00.000Z"
+
+        # Check second comment
+        assert "Second comment" in second_comment["text"]
+        assert second_comment["author"] == "Jane Smith"
+        assert second_comment["created_at"] == "2024-01-16T14:20:00.000Z"
 
 
 class TestErrorHandling:
@@ -705,24 +768,33 @@ class TestErrorHandling:
         ]
 
         with patch.object(BeadsWriter, "_check_bd_available"):
-            mock_beads = BeadsWriter(dry_run=True)
+            mock_beads = BeadsWriter(dry_run=False)
 
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
-        created_count = [0]
+        captured_jsonl_data = []
 
-        def mock_create_issue(**kwargs):
-            if kwargs["title"] == "Bad Card":
-                raise Exception("Simulated failure")
-            created_count[0] += 1
-            return f"test-{created_count[0]}"
+        def mock_import_from_jsonl(jsonl_path):
+            import json
 
-        with patch.object(converter.beads, "create_issue", side_effect=mock_create_issue):
-            # Should not raise, should continue
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
+
+        with (
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
+        ):
+            # Should not raise - all cards converted to JSONL
             converter.convert()
 
-        # Should have created 2 issues (card1 and card3), skipped card2
-        assert created_count[0] == 2
+        # All 3 cards should be in JSONL (error handling is at import level, not conversion level)
+        assert len(captured_jsonl_data) == 3
+        assert captured_jsonl_data[0]["title"] == "Good Card"
+        assert captured_jsonl_data[1]["title"] == "Bad Card"
+        assert captured_jsonl_data[2]["title"] == "Another Good Card"
 
 
 class TestChecklistToEpicConversion:
@@ -765,18 +837,26 @@ class TestChecklistToEpicConversion:
         mock_trello.get_card_comments.return_value = []
 
         with patch.object(BeadsWriter, "_check_bd_available"):
-            mock_beads = BeadsWriter(dry_run=True)
+            mock_beads = BeadsWriter(dry_run=False)
 
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
-        # Track create_issue calls
-        created_issues = []
-        issue_counter = [0]
+        # Track JSONL import (parent epic)
+        captured_jsonl_data = []
+        created_child_issues = []
 
-        def mock_create_issue(**kwargs):
-            issue_counter[0] += 1
-            issue_id = f"test-{issue_counter[0]}"
-            created_issues.append({"id": issue_id, **kwargs})
+        def mock_import_from_jsonl(jsonl_path):
+            import json
+
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
+
+        def mock_create_child(**kwargs):
+            issue_id = f"test-child-{len(created_child_issues)}"
+            created_child_issues.append({"id": issue_id, **kwargs})
             return issue_id
 
         # Track add_dependency calls
@@ -786,42 +866,46 @@ class TestChecklistToEpicConversion:
             dependencies.append({"child": child_id, "parent": parent_id, "type": dep_type})
 
         with (
-            patch.object(converter.beads, "create_issue", side_effect=mock_create_issue),
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
+            patch.object(converter.beads, "create_issue", side_effect=mock_create_child),
             patch.object(converter.beads, "add_dependency", side_effect=mock_add_dependency),
         ):
             converter.convert()
 
-        # Should create 4 issues: 1 epic + 3 child tasks
-        assert len(created_issues) == 4
+        # Should create 1 epic (JSONL) + 3 child tasks (create_issue)
+        assert len(captured_jsonl_data) == 1
+        assert len(created_child_issues) == 3
 
-        # First issue should be epic
-        epic_issue = created_issues[0]
+        # Epic should be in JSONL
+        epic_issue = captured_jsonl_data[0]
         assert epic_issue["issue_type"] == "epic"
         assert epic_issue["title"] == "Epic Card"
 
-        # Next 3 should be child tasks
-        assert created_issues[1]["issue_type"] == "task"
-        assert created_issues[1]["title"] == "First task"
-        assert created_issues[1]["status"] == "open"  # incomplete
+        # Children should be created via create_issue
+        assert created_child_issues[0]["issue_type"] == "task"
+        assert created_child_issues[0]["title"] == "First task"
+        assert created_child_issues[0]["status"] == "open"  # incomplete
 
-        assert created_issues[2]["issue_type"] == "task"
-        assert created_issues[2]["title"] == "Second task"
-        assert created_issues[2]["status"] == "closed"  # complete
+        assert created_child_issues[1]["issue_type"] == "task"
+        assert created_child_issues[1]["title"] == "Second task"
+        assert created_child_issues[1]["status"] == "closed"  # complete
 
-        assert created_issues[3]["issue_type"] == "task"
-        assert created_issues[3]["title"] == "Third task"
-        assert created_issues[3]["status"] == "open"  # incomplete
+        assert created_child_issues[2]["issue_type"] == "task"
+        assert created_child_issues[2]["title"] == "Third task"
+        assert created_child_issues[2]["status"] == "open"  # incomplete
 
         # Should have 3 parent-child dependencies
         assert len(dependencies) == 3
+        epic_id = epic_issue["id"]
         for dep in dependencies:
             assert dep["type"] == "parent-child"
-            assert dep["parent"] == "test-1"  # Epic is first issue
+            assert dep["parent"] == epic_id
 
         # Child issues should have epic label
-        assert "epic:test-1" in created_issues[1]["labels"]
-        assert "epic:test-1" in created_issues[2]["labels"]
-        assert "epic:test-1" in created_issues[3]["labels"]
+        assert f"epic:{epic_id}" in created_child_issues[0]["labels"]
+        assert f"epic:{epic_id}" in created_child_issues[1]["labels"]
+        assert f"epic:{epic_id}" in created_child_issues[2]["labels"]
 
     def test_card_without_checklist_remains_task(self):
         """Should keep cards without checklists as task type"""
@@ -849,24 +933,31 @@ class TestChecklistToEpicConversion:
         mock_trello.get_card_comments.return_value = []
 
         with patch.object(BeadsWriter, "_check_bd_available"):
-            mock_beads = BeadsWriter(dry_run=True)
+            mock_beads = BeadsWriter(dry_run=False)
 
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
-        created_issues = []
+        captured_jsonl_data = []
 
-        def mock_create_issue(**kwargs):
-            issue_id = f"test-{len(created_issues)}"
-            created_issues.append({"id": issue_id, **kwargs})
-            return issue_id
+        def mock_import_from_jsonl(jsonl_path):
+            import json
 
-        with patch.object(converter.beads, "create_issue", side_effect=mock_create_issue):
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
+
+        with (
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
+        ):
             converter.convert()
 
         # Should create 1 task
-        assert len(created_issues) == 1
-        assert created_issues[0]["issue_type"] == "task"
-        assert created_issues[0]["title"] == "Regular Card"
+        assert len(captured_jsonl_data) == 1
+        assert captured_jsonl_data[0]["issue_type"] == "task"
+        assert captured_jsonl_data[0]["title"] == "Regular Card"
 
     def test_multiple_checklists_adds_context(self):
         """Should add checklist name to child titles when multiple checklists exist"""
@@ -909,29 +1000,42 @@ class TestChecklistToEpicConversion:
         mock_trello.get_card_comments.return_value = []
 
         with patch.object(BeadsWriter, "_check_bd_available"):
-            mock_beads = BeadsWriter(dry_run=True)
+            mock_beads = BeadsWriter(dry_run=False)
 
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
-        created_issues = []
+        captured_jsonl_data = []
+        created_child_issues = []
 
-        def mock_create_issue(**kwargs):
-            issue_id = f"test-{len(created_issues)}"
-            created_issues.append({"id": issue_id, **kwargs})
+        def mock_import_from_jsonl(jsonl_path):
+            import json
+
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
+
+        def mock_create_child(**kwargs):
+            issue_id = f"test-child-{len(created_child_issues)}"
+            created_child_issues.append({"id": issue_id, **kwargs})
             return issue_id
 
         with (
-            patch.object(converter.beads, "create_issue", side_effect=mock_create_issue),
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
+            patch.object(converter.beads, "create_issue", side_effect=mock_create_child),
             patch.object(converter.beads, "add_dependency"),
         ):
             converter.convert()
 
-        # Should create 1 epic + 2 child tasks
-        assert len(created_issues) == 3
+        # Should create 1 epic (JSONL) + 2 child tasks (create_issue)
+        assert len(captured_jsonl_data) == 1
+        assert len(created_child_issues) == 2
 
         # Child titles should include checklist names
-        assert created_issues[1]["title"] == "[Backend] API endpoint"
-        assert created_issues[2]["title"] == "[Frontend] UI component"
+        assert created_child_issues[0]["title"] == "[Backend] API endpoint"
+        assert created_child_issues[1]["title"] == "[Frontend] UI component"
 
 
 class TestRelatedDependencies:
@@ -975,18 +1079,20 @@ class TestRelatedDependencies:
         mock_trello.get_card_comments.return_value = []
 
         with patch.object(BeadsWriter, "_check_bd_available"):
-            mock_beads = BeadsWriter(dry_run=True)
+            mock_beads = BeadsWriter(dry_run=False)
 
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
-        created_issues = []
-        issue_counter = [0]
+        captured_jsonl_data = []
 
-        def mock_create_issue(**kwargs):
-            issue_counter[0] += 1
-            issue_id = f"test-{issue_counter[0]}"
-            created_issues.append({"id": issue_id, **kwargs})
-            return issue_id
+        def mock_import_from_jsonl(jsonl_path):
+            import json
+
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
 
         dependencies = []
 
@@ -996,20 +1102,23 @@ class TestRelatedDependencies:
         mock_update_desc = MagicMock()
 
         with (
-            patch.object(converter.beads, "create_issue", side_effect=mock_create_issue),
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
             patch.object(converter.beads, "add_dependency", side_effect=mock_add_dependency),
             patch.object(converter, "_update_description", mock_update_desc),
         ):
             converter.convert()
 
         # Should create 2 issues
-        assert len(created_issues) == 2
+        assert len(captured_jsonl_data) == 2
 
         # Should create 1 related dependency (card2 → card1)
         related_deps = [d for d in dependencies if d["type"] == "related"]
         assert len(related_deps) == 1
-        assert related_deps[0]["source"] == "test-2"  # Card Two
-        assert related_deps[0]["target"] == "test-1"  # Card One
+        card1_id = captured_jsonl_data[0]["id"]
+        card2_id = captured_jsonl_data[1]["id"]
+        assert related_deps[0]["source"] == card2_id  # Card Two
+        assert related_deps[0]["target"] == card1_id  # Card One
         assert related_deps[0]["type"] == "related"
 
     # TODO: Fix this test - comments aren't being fetched in test setup
@@ -1070,13 +1179,13 @@ class TestRelatedDependencies:
 
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
-        created_issues = []
+        captured_jsonl_data = []
         issue_counter = [0]
 
         def mock_create_issue(**kwargs):
             issue_counter[0] += 1
             issue_id = f"test-{issue_counter[0]}"
-            created_issues.append({"id": issue_id, **kwargs})
+            captured_jsonl_data.append({"id": issue_id, **kwargs})
             return issue_id
 
         dependencies = []
@@ -1092,7 +1201,7 @@ class TestRelatedDependencies:
             converter.convert()
 
         # Should create 2 issues
-        assert len(created_issues) == 2
+        assert len(captured_jsonl_data) == 2
 
         # Should create 1 related dependency from comment reference
         related_deps = [d for d in dependencies if d["type"] == "related"]
@@ -1126,16 +1235,20 @@ class TestRelatedDependencies:
         mock_trello.get_card_comments.return_value = []
 
         with patch.object(BeadsWriter, "_check_bd_available"):
-            mock_beads = BeadsWriter(dry_run=True)
+            mock_beads = BeadsWriter(dry_run=False)
 
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
-        created_issues = []
+        captured_jsonl_data = []
 
-        def mock_create_issue(**kwargs):
-            issue_id = f"test-{len(created_issues)}"
-            created_issues.append({"id": issue_id, **kwargs})
-            return issue_id
+        def mock_import_from_jsonl(jsonl_path):
+            import json
+
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
 
         dependencies = []
 
@@ -1143,13 +1256,14 @@ class TestRelatedDependencies:
             dependencies.append({"source": source_id, "target": target_id, "type": dep_type})
 
         with (
-            patch.object(converter.beads, "create_issue", side_effect=mock_create_issue),
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
             patch.object(converter.beads, "add_dependency", side_effect=mock_add_dependency),
         ):
             converter.convert()
 
         # Should create 1 issue
-        assert len(created_issues) == 1
+        assert len(captured_jsonl_data) == 1
 
         # Should NOT create self-referencing dependency
         assert len(dependencies) == 0
