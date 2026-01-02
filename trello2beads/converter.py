@@ -726,15 +726,26 @@ class TrelloToBeadsConverter:
                             # Determine child status based on completion
                             child_status = "closed" if item_state == "complete" else "open"
 
-                            # Create child issue title with checklist context
-                            child_title = f"{item_name}"
-                            if len(card["checklists"]) > 1:
-                                # Multiple checklists - add checklist name for clarity
-                                child_title = f"[{checklist_name}] {item_name}"
+                            # Detect URL-only checklist items and generate proper title
+                            is_url_only = item_name.strip().startswith(("http://", "https://"))
+                            url_in_description = ""
+
+                            if is_url_only:
+                                # URL-only item: generate meaningful title from checklist name + position
+                                # e.g., "Absorb Artifacts - 1" instead of "https://docs.google.com/..."
+                                position = item_idx + 1  # 1-indexed for humans
+                                child_title = f"{checklist_name} - {position}"
+                                url_in_description = f"\n\nURL: {item_name.strip()}"
+                            else:
+                                # Normal item: use item name as title
+                                child_title = f"{item_name}"
+                                if len(card["checklists"]) > 1:
+                                    # Multiple checklists - add checklist name for clarity
+                                    child_title = f"[{checklist_name}] {item_name}"
 
                             # Child description references parent epic
                             child_desc = (
-                                f"Part of epic: {card['name']}\nChecklist: {checklist_name}"
+                                f"Part of epic: {card['name']}\nChecklist: {checklist_name}{url_in_description}"
                             )
 
                             try:
@@ -752,7 +763,7 @@ class TrelloToBeadsConverter:
                                 self.beads.add_dependency(child_id, issue_id, "parent-child")
 
                                 status_icon = "✓" if item_state == "complete" else "☐"
-                                logger.info(f"  └─ {status_icon} Created {child_id}: {item_name}")
+                                logger.info(f"  └─ {status_icon} Created {child_id}: {child_title}")
                                 child_issues_created += 1
                                 child_task_count += 1
 
