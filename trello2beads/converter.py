@@ -629,25 +629,8 @@ class TrelloToBeadsConverter:
                 # Production mode: use JSONL import (preserves comment timestamps)
                 logger.info(f"Creating {len(issue_requests)} parent issues via JSONL import...")
 
-                # Get beads prefix to generate issue IDs
-                prefix = self.beads.get_prefix()
-
-                # Validate prefix before proceeding
-                if not prefix or prefix.strip() == "" or prefix == "(not set)":
-                    raise ValueError(
-                        f"Beads database prefix is not configured properly.\n"
-                        f"Got prefix: '{prefix}'\n\n"
-                        f"This usually means your beads database was not initialized correctly.\n"
-                        f"To fix this:\n"
-                        f"  1. Check your database initialization: bd config get prefix\n"
-                        f"  2. If empty, reinitialize with: bd init --prefix your-prefix\n"
-                        f"  3. Or set the prefix manually: bd config set prefix your-prefix\n"
-                    )
-
-                logger.info(f"Using beads prefix: '{prefix}' for {len(issue_requests)} issues")
-                logger.debug(f"Validated prefix: {prefix}")
-
-                # Generate IDs and write JSONL
+                # Generate valid beads IDs with placeholder prefix
+                # --rename-on-import will fix prefix to match database
                 import tempfile
 
                 with tempfile.NamedTemporaryFile(
@@ -655,8 +638,9 @@ class TrelloToBeadsConverter:
                 ) as jsonl_file:
                     jsonl_path = jsonl_file.name
                     for i, issue in enumerate(issue_requests):
-                        # Generate beads-style ID
-                        issue_id = self.beads.generate_issue_id(prefix, i)
+                        # Generate valid beads ID (Base36, 4-char suffix)
+                        # Use "import" as placeholder prefix (--rename-on-import will fix it)
+                        issue_id = self.beads.generate_issue_id("import", i)
                         issue["id"] = issue_id
 
                         # Remove None comments field (beads doesn't like null)
@@ -667,12 +651,20 @@ class TrelloToBeadsConverter:
                         jsonl_file.write(json.dumps(issue) + "\n")
 
                 # Import JSONL (preserves comment timestamps!)
+                # beads will rename: import-a3f8 → accel-a3f8 (or whatever DB prefix is)
                 try:
                     external_ref_to_id = self.beads.import_from_jsonl(jsonl_path)
                     logger.info(f"✅ Imported {len(external_ref_to_id)} parent issues")
 
-                    # Build issue_ids list for compatibility with existing code
-                    issue_ids = [issue["id"] for issue in issue_requests]
+                    # Build issue_ids list by looking up each request's external_ref
+                    # This gets the RENAMED IDs after --rename-on-import
+                    # (maintains same order as issue_requests for zip with card_metadata)
+                    issue_ids = []
+                    for issue in issue_requests:
+                        external_ref = issue.get("external_ref")
+                        issue_id = external_ref_to_id.get(external_ref) if external_ref else None
+                        issue_ids.append(issue_id)
+
                 finally:
                     # Clean up temp file
                     Path(jsonl_path).unlink(missing_ok=True)

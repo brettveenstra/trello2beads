@@ -927,31 +927,36 @@ class BeadsWriter:
             ) from e
 
     def generate_issue_id(self, prefix: str, index: int) -> str:
-        """Generate a beads-style issue ID.
+        """Generate a beads-compatible issue ID.
+
+        Uses Base36 encoding (lowercase alphanumeric) with 4-char suffix
+        to match beads' native ID format expectations.
 
         Args:
-            prefix: Database prefix (e.g., "myproject")
+            prefix: Database prefix (e.g., "myproject", or "import" as placeholder)
             index: Sequential index for uniqueness
 
         Returns:
-            Issue ID like "myproject-abc123"
+            Issue ID like "import-a3f8" (valid beads format)
+            Use with --rename-on-import to change prefix to match database
         """
         import hashlib
 
-        # Generate hash from prefix + index for uniqueness
-        content = f"{prefix}-{index}"
+        # Generate hash from index for uniqueness (prefix will be renamed anyway)
+        content = f"trello-import-{index}"
         hash_digest = hashlib.sha256(content.encode()).digest()
 
-        # Base62 encode (similar to beads)
-        base62_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-        num = int.from_bytes(hash_digest[:6], "big")  # Use first 6 bytes
-        result = []
-        while num > 0:
-            result.append(base62_chars[num % 62])
-            num //= 62
+        # Base36 encode (0-9a-z lowercase ONLY - beads requirement)
+        base36_chars = "0123456789abcdefghijklmnopqrstuvwxyz"
+        num = int.from_bytes(hash_digest[:4], "big")  # 4 bytes for 4-char suffix
 
-        short_hash = "".join(reversed(result))[:7]  # 7 chars like beads
-        return f"{prefix}-{short_hash}"
+        result = []
+        for _ in range(4):  # Exactly 4 chars (beads' default min_hash_length)
+            result.append(base36_chars[num % 36])
+            num //= 36
+
+        suffix = "".join(reversed(result))
+        return f"{prefix}-{suffix}"
 
     def get_prefix(self) -> str:
         """Get the beads database prefix using multiple detection methods with fallbacks.
@@ -1237,12 +1242,13 @@ class BeadsWriter:
         if self.db_path:
             cmd.extend(["--db", self.db_path])
 
-        # Use --rename-on-import to automatically fix prefix mismatches
-        # This handles cases where generated IDs don't match database prefix
+        # Use --rename-on-import to fix prefix mismatch
+        # Our JSONL has valid suffixes but placeholder "import-" prefix
+        # This renames: import-a3f8 → accel-a3f8 (or whatever DB prefix is)
         cmd.extend(["import", "-i", str(jsonl_file), "--rename-on-import"])
 
         logger.info("Importing issues from JSONL: %s", jsonl_path)
-        logger.info("Using --rename-on-import to handle prefix mismatches automatically")
+        logger.info("Using --rename-on-import to fix prefix (import-* → <db-prefix>-*)")
         logger.debug("Command: %s", " ".join(cmd))
 
         try:
@@ -1285,15 +1291,64 @@ class BeadsWriter:
         if result.stdout:
             logger.debug("Import output: %s", result.stdout)
 
-        # Build mapping: read back the JSONL to get external_ref -> id mapping
-        # (bd import doesn't return this info, so we query the imported issues)
+        # Build mapping: query database to get external_ref -> renamed ID mapping
+        # We generated IDs like "import-a3f8", beads renamed to "accel-a3f8"
+        # Query back to get the final renamed IDs
+        logger.info("Querying database for renamed issue IDs...")
+        external_ref_to_id = self._query_external_ref_mapping()
+
+        logger.info(f"✅ Mapped {len(external_ref_to_id)} external refs to renamed issue IDs")
+        return external_ref_to_id
+
+    def _query_external_ref_mapping(self) -> dict[str, str]:
+        """Query database to get external_ref -> issue_id mapping after rename.
+
+        After --rename-on-import, IDs have been renamed from placeholder prefix
+        to database prefix (import-a3f8 → accel-a3f8). This queries the final IDs.
+
+        Returns:
+            Dict mapping external_ref to renamed issue_id for all issues
+        """
+        cmd = ["bd"]
+
+        if self.db_path:
+            cmd.extend(["--db", self.db_path])
+
+        # Use list with custom format to get id and external_ref
+        cmd.extend(["list", "--format={{.ID}}:::{{.ExternalRef}}"])
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=30)
+        except subprocess.TimeoutExpired as e:
+            raise BeadsUpdateError(
+                "Query for external_ref mapping timed out",
+                command=cmd,
+            ) from e
+        except Exception as e:
+            raise BeadsUpdateError(
+                f"Failed to query external_ref mapping: {e}",
+                command=cmd,
+            ) from e
+
+        if result.returncode != 0:
+            raise BeadsUpdateError(
+                f"Failed to query external_ref mapping\nError: {result.stderr}",
+                command=cmd,
+                stderr=result.stderr,
+                returncode=result.returncode,
+            )
+
+        # Parse output: each line is "issue-id:::external-ref"
         external_ref_to_id = {}
-        with open(jsonl_file) as f:
-            for line in f:
-                issue_data = json.loads(line)
-                external_ref = issue_data.get("external_ref")
-                issue_id = issue_data.get("id")
-                if external_ref and issue_id:
+        for line in result.stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+
+            parts = line.split(":::")
+            if len(parts) == 2:
+                issue_id = parts[0].strip()
+                external_ref = parts[1].strip()
+                if external_ref:  # Only map if external_ref exists
                     external_ref_to_id[external_ref] = issue_id
 
         return external_ref_to_id
