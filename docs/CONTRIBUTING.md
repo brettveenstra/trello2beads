@@ -91,6 +91,8 @@ Running `pip install -e ".[dev]"` or `uv pip install -e ".[dev]"` installs:
 
 ## Daily Development Workflow
 
+### Testing Code Changes (In Virtual Environment)
+
 ```bash
 # Make changes to code in trello2beads/
 
@@ -112,6 +114,32 @@ ruff format .          # Format code
 bandit -r trello2beads
 pip-audit
 ```
+
+### Testing the CLI Tool (Globally Installed via pipx)
+
+When you need to test the actual `trello2beads` command as users will run it:
+
+```bash
+# After making code changes and committing/pulling
+cd /path/to/trello2beads/repo
+
+# Reinstall from local repo (picks up latest changes)
+pipx reinstall --force trello2beads
+
+# Or if installed with editable mode:
+pipx uninstall trello2beads
+pipx install -e .
+
+# Verify the tool works with your changes
+trello2beads --help
+trello2beads --test-connection
+```
+
+**When to use this:**
+- After `git pull` to pick up remote changes
+- Testing user-facing CLI behavior
+- Troubleshooting installation issues
+- Verifying fixes work in production-like environment
 
 ### Continuous Integration Script
 

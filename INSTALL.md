@@ -64,9 +64,21 @@ pipx ensurepath
 # Then restart your shell
 ```
 
+**Need to reinstall after code changes? (Development/Testing)**
+```bash
+# Force reinstall from local repo (useful after git pull)
+cd /path/to/trello2beads/repo
+pipx reinstall --force trello2beads
+
+# Or if installed with editable mode (-e):
+pipx uninstall trello2beads
+pipx install -e .
+```
+
 **Still having issues?**
 - Check that `~/.local/bin` is in your PATH: `echo $PATH`
 - Try: `python3 -m pipx install -e .` instead
+- Verify version: `trello2beads --help` (check for expected features)
 
 ---
 
