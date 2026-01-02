@@ -633,6 +633,9 @@ class TrelloToBeadsConverter:
                 # --rename-on-import will fix prefix to match database
                 import tempfile
 
+                # Store mapping: generated_id -> external_ref (for query-back later)
+                generated_id_to_external_ref: dict[str, str] = {}
+
                 with tempfile.NamedTemporaryFile(
                     mode="w", suffix=".jsonl", delete=False
                 ) as jsonl_file:
@@ -642,6 +645,11 @@ class TrelloToBeadsConverter:
                         # Use "import" as placeholder prefix (--rename-on-import will fix it)
                         issue_id = self.beads.generate_issue_id("import", i)
                         issue["id"] = issue_id
+
+                        # Store mapping for later (to match renamed IDs)
+                        external_ref = issue.get("external_ref")
+                        if external_ref:
+                            generated_id_to_external_ref[issue_id] = external_ref
 
                         # Remove None comments field (beads doesn't like null)
                         if issue.get("comments") is None:
@@ -653,7 +661,9 @@ class TrelloToBeadsConverter:
                 # Import JSONL (preserves comment timestamps!)
                 # beads will rename: import-a3f8 → accel-a3f8 (or whatever DB prefix is)
                 try:
-                    external_ref_to_id = self.beads.import_from_jsonl(jsonl_path)
+                    external_ref_to_id = self.beads.import_from_jsonl(
+                        jsonl_path, generated_id_to_external_ref
+                    )
                     logger.info(f"✅ Imported {len(external_ref_to_id)} parent issues")
 
                     # Build issue_ids list by looking up each request's external_ref

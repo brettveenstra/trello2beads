@@ -1199,22 +1199,27 @@ class BeadsWriter:
             logger.debug(f"Failed to detect prefix from issues: {e}")
             return None
 
-    def import_from_jsonl(self, jsonl_path: str) -> dict[str, str]:
+    def import_from_jsonl(
+        self, jsonl_path: str, generated_id_to_external_ref: dict[str, str]
+    ) -> dict[str, str]:
         """Import issues from JSONL file (preserves comment timestamps).
 
         Args:
             jsonl_path: Path to JSONL file containing issues with embedded comments
+            generated_id_to_external_ref: Mapping of generated IDs to external_ref
+                (e.g., {"import-a3f8": "trello:abc123"})
 
         Returns:
-            Mapping of external_ref -> issue_id for imported issues
+            Mapping of external_ref -> renamed issue_id for imported issues
+            (e.g., {"trello:abc123": "accel-a3f8"})
 
         Raises:
             ValueError: If jsonl_path is invalid
             BeadsUpdateError: If import fails
 
         Example:
-            >>> id_map = writer.import_from_jsonl("issues_to_import.jsonl")
-            >>> # {'trello:abc': 'proj-123', 'trello:def': 'proj-456'}
+            >>> id_map = writer.import_from_jsonl("issues.jsonl", {"import-a3f8": "trello:abc"})
+            >>> # {'trello:abc': 'accel-a3f8'}  # Note: prefix renamed by beads
         """
         if not jsonl_path or not jsonl_path.strip():
             raise ValueError("JSONL path cannot be empty")
@@ -1223,18 +1228,16 @@ class BeadsWriter:
         if not jsonl_file.exists():
             raise ValueError(f"JSONL file not found: {jsonl_path}")
 
-        # In dry-run mode, just read the JSONL and return the mapping
+        # In dry-run mode, use the provided mapping (no actual import)
         if self.dry_run:
             logger.info("[DRY RUN] Would import issues from JSONL: %s", jsonl_path)
-            external_ref_to_id = {}
-            with open(jsonl_file) as f:
-                for line in f:
-                    issue_data = json.loads(line)
-                    external_ref = issue_data.get("external_ref")
-                    issue_id = issue_data.get("id")
-                    if external_ref and issue_id:
-                        external_ref_to_id[external_ref] = issue_id
-                        logger.debug("[DRY RUN] Would import: %s -> %s", external_ref, issue_id)
+            # Invert the mapping: generated_id -> external_ref becomes external_ref -> generated_id
+            external_ref_to_id = {
+                ext_ref: gen_id for gen_id, ext_ref in generated_id_to_external_ref.items()
+            }
+            logger.debug(
+                "[DRY RUN] Would import %d issues with mapping", len(external_ref_to_id)
+            )
             return external_ref_to_id
 
         cmd = ["bd"]
@@ -1291,64 +1294,87 @@ class BeadsWriter:
         if result.stdout:
             logger.debug("Import output: %s", result.stdout)
 
-        # Build mapping: query database to get external_ref -> renamed ID mapping
+        # Build mapping: match generated IDs to renamed IDs by suffix
         # We generated IDs like "import-a3f8", beads renamed to "accel-a3f8"
-        # Query back to get the final renamed IDs
-        logger.info("Querying database for renamed issue IDs...")
-        external_ref_to_id = self._query_external_ref_mapping()
+        # Suffix stays same, only prefix changes
+        logger.info("Matching renamed IDs by suffix...")
+        external_ref_to_id = self._build_external_ref_mapping(generated_id_to_external_ref)
 
         logger.info(f"✅ Mapped {len(external_ref_to_id)} external refs to renamed issue IDs")
         return external_ref_to_id
 
-    def _query_external_ref_mapping(self) -> dict[str, str]:
-        """Query database to get external_ref -> issue_id mapping after rename.
+    def _build_external_ref_mapping(
+        self, generated_id_to_external_ref: dict[str, str]
+    ) -> dict[str, str]:
+        """Build external_ref -> renamed_id mapping by matching suffixes.
 
         After --rename-on-import, IDs have been renamed from placeholder prefix
-        to database prefix (import-a3f8 → accel-a3f8). This queries the final IDs.
+        to database prefix (import-a3f8 → accel-a3f8). We match by suffix since
+        beads preserves the suffix during rename.
+
+        Args:
+            generated_id_to_external_ref: Mapping of generated IDs to external_ref
 
         Returns:
-            Dict mapping external_ref to renamed issue_id for all issues
+            Dict mapping external_ref to renamed issue_id
         """
+        # Get all issues from database (with unlimited limit)
         cmd = ["bd"]
-
         if self.db_path:
             cmd.extend(["--db", self.db_path])
-
-        # Use list with custom format to get id and external_ref
-        cmd.extend(["list", "--format={{.ID}}:::{{.ExternalRef}}"])
+        cmd.extend(["list", "--json", "--limit", "0"])
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60)
         except subprocess.TimeoutExpired as e:
             raise BeadsUpdateError(
-                "Query for external_ref mapping timed out",
+                "Query for issue list timed out",
                 command=cmd,
             ) from e
         except Exception as e:
             raise BeadsUpdateError(
-                f"Failed to query external_ref mapping: {e}",
+                f"Failed to query issue list: {e}",
                 command=cmd,
             ) from e
 
         if result.returncode != 0:
             raise BeadsUpdateError(
-                f"Failed to query external_ref mapping\nError: {result.stderr}",
+                f"Failed to query issue list\nError: {result.stderr}",
                 command=cmd,
                 stderr=result.stderr,
                 returncode=result.returncode,
             )
 
-        # Parse output: each line is "issue-id:::external-ref"
-        external_ref_to_id = {}
-        for line in result.stdout.strip().split("\n"):
-            if not line.strip():
-                continue
+        # Parse JSON output
+        try:
+            issues = json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            raise BeadsUpdateError(
+                f"Failed to parse issue list JSON: {e}",
+                command=cmd,
+                stdout=result.stdout,
+            ) from e
 
-            parts = line.split(":::")
-            if len(parts) == 2:
-                issue_id = parts[0].strip()
-                external_ref = parts[1].strip()
-                if external_ref:  # Only map if external_ref exists
-                    external_ref_to_id[external_ref] = issue_id
+        # Build suffix -> renamed_id mapping from all issues
+        suffix_to_renamed_id = {}
+        for issue in issues:
+            issue_id = issue.get("id", "")
+            if "-" in issue_id:
+                suffix = issue_id.split("-", 1)[1]  # Get everything after first hyphen
+                suffix_to_renamed_id[suffix] = issue_id
+
+        # Match generated IDs to renamed IDs by suffix
+        external_ref_to_id = {}
+        for generated_id, external_ref in generated_id_to_external_ref.items():
+            if "-" in generated_id:
+                suffix = generated_id.split("-", 1)[1]
+                renamed_id = suffix_to_renamed_id.get(suffix)
+                if renamed_id:
+                    external_ref_to_id[external_ref] = renamed_id
+                    logger.debug(
+                        f"Matched: {generated_id} → {renamed_id} (external_ref: {external_ref})"
+                    )
+                else:
+                    logger.warning(f"No renamed ID found for suffix: {suffix} ({external_ref})")
 
         return external_ref_to_id
