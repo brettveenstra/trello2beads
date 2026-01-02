@@ -1294,6 +1294,25 @@ class BeadsWriter:
         if result.stdout:
             logger.debug("Import output: %s", result.stdout)
 
+        # Sync database with JSONL (import writes to JSONL, DB needs to catch up)
+        # Without this, 'bd list' will fail with "Database out of sync" error
+        logger.info("Syncing database with JSONL...")
+        sync_cmd = ["bd"]
+        if self.db_path:
+            sync_cmd.extend(["--db", self.db_path])
+        sync_cmd.extend(["sync", "--import-only"])
+
+        try:
+            sync_result = subprocess.run(
+                sync_cmd, capture_output=True, text=True, check=False, timeout=60
+            )
+            if sync_result.returncode != 0:
+                logger.warning(
+                    "Sync warning (non-fatal): %s", sync_result.stderr.strip() if sync_result.stderr else "(none)"
+                )
+        except Exception as e:
+            logger.warning(f"Sync failed (non-fatal): {e}")
+
         # Build mapping: match generated IDs to renamed IDs by suffix
         # We generated IDs like "import-a3f8", beads renamed to "accel-a3f8"
         # Suffix stays same, only prefix changes
