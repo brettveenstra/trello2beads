@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -135,6 +136,29 @@ class BeadsWriter:
                 "bd CLI timed out. There may be an issue with your beads installation.",
                 command=["bd", "--help"],
             ) from e
+
+    def _get_subprocess_env(self) -> dict[str, str]:
+        """Get environment dict for subprocess calls with proper BEADS_DIR.
+
+        When --db flag is used, we need to ensure BEADS_DIR matches the database
+        directory to avoid conflicts with parent repo databases.
+
+        Returns:
+            Environment dict with BEADS_DIR properly set or unset
+        """
+        env = os.environ.copy()
+
+        if self.db_path:
+            # Extract .beads directory from db_path
+            # Example: /mnt/c/_scratch/test4/.beads/beads.db → /mnt/c/_scratch/test4/.beads
+            db_file = Path(self.db_path)
+            beads_dir = db_file.parent
+
+            # Override BEADS_DIR to match the database we're targeting
+            env["BEADS_DIR"] = str(beads_dir.resolve())
+            logger.debug(f"Setting BEADS_DIR={env['BEADS_DIR']} for subprocess")
+
+        return env
 
     def _parse_issue_id(self, output: str) -> str | None:
         """Parse issue ID from bd CLI output using regex
@@ -353,7 +377,7 @@ class BeadsWriter:
             return mock_id
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=self._get_subprocess_env())
         except subprocess.TimeoutExpired as e:
             raise BeadsIssueCreationError(
                 f"Issue creation timed out after 30 seconds.\n"
@@ -605,7 +629,7 @@ class BeadsWriter:
             return
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=self._get_subprocess_env())
         except subprocess.TimeoutExpired as e:
             raise BeadsUpdateError(
                 f"Status update timed out after 30 seconds.\n"
@@ -704,7 +728,7 @@ class BeadsWriter:
             return
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=self._get_subprocess_env())
         except subprocess.TimeoutExpired as e:
             raise BeadsUpdateError(
                 f"Dependency creation timed out after 30 seconds.\n"
@@ -789,7 +813,7 @@ class BeadsWriter:
             return
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=self._get_subprocess_env())
         except subprocess.TimeoutExpired as e:
             raise BeadsUpdateError(
                 f"Comment creation timed out after 30 seconds.\n"
@@ -872,7 +896,7 @@ class BeadsWriter:
             }
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=self._get_subprocess_env())
         except subprocess.TimeoutExpired as e:
             raise BeadsUpdateError(
                 f"Issue retrieval timed out after 30 seconds.\n"
@@ -1154,7 +1178,7 @@ class BeadsWriter:
                 cmd.extend(["--db", self.db_path])
             cmd.extend(["config", "get", "prefix"])
 
-            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=10)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=10, env=self._get_subprocess_env())
 
             if result.returncode == 0 and result.stdout.strip():
                 prefix = result.stdout.strip()
@@ -1180,7 +1204,7 @@ class BeadsWriter:
                 cmd.extend(["--db", self.db_path])
             cmd.extend(["list", "--format=id"])
 
-            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=10)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=10, env=self._get_subprocess_env())
 
             if result.returncode == 0 and result.stdout.strip():
                 # Parse first issue ID to extract prefix
@@ -1261,6 +1285,7 @@ class BeadsWriter:
                 text=True,
                 check=False,
                 timeout=300,  # 5 min timeout for large imports
+                env=self._get_subprocess_env(),
             )
         except subprocess.TimeoutExpired as e:
             raise BeadsUpdateError(
@@ -1304,7 +1329,7 @@ class BeadsWriter:
 
         try:
             sync_result = subprocess.run(
-                sync_cmd, capture_output=True, text=True, check=False, timeout=60
+                sync_cmd, capture_output=True, text=True, check=False, timeout=60, env=self._get_subprocess_env()
             )
             if sync_result.returncode != 0:
                 logger.warning(
@@ -1344,7 +1369,7 @@ class BeadsWriter:
         cmd.extend(["list", "--json", "--limit", "0"])
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60, env=self._get_subprocess_env())
         except subprocess.TimeoutExpired as e:
             raise BeadsUpdateError(
                 "Query for issue list timed out",
