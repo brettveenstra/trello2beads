@@ -585,6 +585,8 @@ class TrelloToBeadsConverter:
         # Phase 1b: Create parent issues (JSONL import or batch create)
         parent_issues_created = 0  # Track parent issues (cards)
         child_issues_created = 0  # Track child issues (checklist items)
+        child_issues_data = []  # Collect child issue data for batch creation
+        child_parent_map = []  # Track (child_external_ref, parent_issue_id) for dependencies
         if not dry_run and issue_requests:
             # Use JSONL import in production (preserves comment timestamps)
             # Use batch_create in dry-run/test mode (for test compatibility)
@@ -713,7 +715,7 @@ class TrelloToBeadsConverter:
                 # Both epic and regular cards are parent cards
                 parent_issues_created += 1
 
-                # Create child issues for checklist items (keep serial for MVP)
+                # Collect child issue data for batch creation
                 if has_checklists:
                     for checklist in card["checklists"]:
                         checklist_name = checklist.get("name", "Checklist")
@@ -748,38 +750,85 @@ class TrelloToBeadsConverter:
                                 f"Part of epic: {card['name']}\nChecklist: {checklist_name}{url_in_description}"
                             )
 
+                            # Collect child issue data for batch creation
+                            child_external_ref = f"{external_ref}:item-{item_id}"
+                            child_issue = {
+                                "title": child_title,
+                                "description": child_desc,
+                                "status": child_status,
+                                "priority": priority,
+                                "type": "task",
+                                "labels": [f"epic:{issue_id}", f"list:{list_name}"],
+                                "external_ref": child_external_ref,
+                            }
+                            child_issues_data.append(child_issue)
+                            child_parent_map.append((child_external_ref, issue_id, child_title, item_state))
+
+                            status_icon = "✓" if item_state == "complete" else "☐"
+                            logger.info(f"  └─ {status_icon} Queued child: {child_title}")
+
+            # Phase 1d: Batch create all child issues via JSONL import
+            if child_issues_data and not dry_run:
+                logger.info("")
+                logger.info(f"📦 Creating {len(child_issues_data)} child issues via JSONL import...")
+
+                # Create JSONL file with all children (using same pattern as parent import)
+                import tempfile
+                child_id_mapping = {}  # external_ref -> child_id
+
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".jsonl", delete=False
+                ) as child_jsonl_file:
+                    child_jsonl_path = child_jsonl_file.name
+
+                    # Store mapping for suffix matching
+                    child_generated_id_to_external_ref = {}
+
+                    for idx, child_issue in enumerate(child_issues_data):
+                        # Generate valid beads ID (offset index to avoid collision with parents)
+                        # Parents use indices 0-(n-1), children use indices n-(n+m-1)
+                        child_idx = parent_issues_created + idx
+                        child_id = self.beads.generate_issue_id("import", child_idx)
+                        child_issue["id"] = child_id
+
+                        # Store mapping
+                        external_ref = child_issue.get("external_ref")
+                        if external_ref:
+                            child_generated_id_to_external_ref[child_id] = external_ref
+
+                        # Write JSONL line
+                        child_jsonl_file.write(json.dumps(child_issue) + "\n")
+
+                try:
+                    # Import children
+                    child_external_ref_to_id = self.beads.import_from_jsonl(
+                        child_jsonl_path, child_generated_id_to_external_ref
+                    )
+                    logger.info(f"✅ Imported {len(child_external_ref_to_id)} child issues")
+
+                    # Create parent-child dependencies
+                    logger.info("🔗 Creating parent-child dependencies...")
+                    deps_created = 0
+                    for child_external_ref, parent_id, child_title, item_state in child_parent_map:
+                        child_id = child_external_ref_to_id.get(child_external_ref)
+                        if child_id:
                             try:
-                                child_id = self.beads.create_issue(
-                                    title=child_title,
-                                    description=child_desc,
-                                    status=child_status,
-                                    priority=priority,  # Inherit parent card's priority
-                                    issue_type="task",
-                                    labels=[f"epic:{issue_id}", f"list:{list_name}"],
-                                    external_ref=f"{external_ref}:item-{item_id}",
-                                )
-
-                                # Add parent-child dependency
-                                self.beads.add_dependency(child_id, issue_id, "parent-child")
-
+                                self.beads.add_dependency(child_id, parent_id, "parent-child")
                                 status_icon = "✓" if item_state == "complete" else "☐"
                                 logger.info(f"  └─ {status_icon} Created {child_id}: {child_title}")
+                                deps_created += 1
                                 child_issues_created += 1
                                 child_task_count += 1
-
                             except Exception as e:
-                                failed_issues.append(
-                                    {
-                                        "title": child_title,
-                                        "type": "child_task",
-                                        "error": str(e),
-                                    }
-                                )
-                                logger.warning(
-                                    "Failed to create child issue for checklist item '%s': %s",
-                                    item_name,
-                                    e,
-                                )
+                                logger.warning(f"Failed to add dependency {child_id} → {parent_id}: {e}")
+                        else:
+                            logger.warning(f"Child issue not found for {child_external_ref}")
+
+                    logger.info(f"✅ Created {deps_created} parent-child dependencies")
+
+                finally:
+                    # Clean up temp file
+                    Path(child_jsonl_path).unlink(missing_ok=True)
 
         # SECOND PASS: Resolve Trello card references (if not dry run)
         # Note: Comments already embedded in JSONL during import with timestamps!
