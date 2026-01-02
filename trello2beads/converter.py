@@ -631,7 +631,21 @@ class TrelloToBeadsConverter:
 
                 # Get beads prefix to generate issue IDs
                 prefix = self.beads.get_prefix()
-                logger.debug(f"Using beads prefix: {prefix}")
+
+                # Validate prefix before proceeding
+                if not prefix or prefix.strip() == "" or prefix == "(not set)":
+                    raise ValueError(
+                        f"Beads database prefix is not configured properly.\n"
+                        f"Got prefix: '{prefix}'\n\n"
+                        f"This usually means your beads database was not initialized correctly.\n"
+                        f"To fix this:\n"
+                        f"  1. Check your database initialization: bd config get prefix\n"
+                        f"  2. If empty, reinitialize with: bd init --prefix your-prefix\n"
+                        f"  3. Or set the prefix manually: bd config set prefix your-prefix\n"
+                    )
+
+                logger.info(f"Using beads prefix: '{prefix}' for {len(issue_requests)} issues")
+                logger.debug(f"Validated prefix: {prefix}")
 
                 # Generate IDs and write JSONL
                 import tempfile

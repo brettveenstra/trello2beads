@@ -42,6 +42,9 @@ Usage:
     # Disable SSL verification (if needed for network environment)
     python3 -m trello2beads --no-verify-ssl
 
+    # Override beads prefix detection (troubleshooting)
+    python3 -m trello2beads --prefix myproject
+
     # Test connection and credentials
     python3 -m trello2beads --test-connection
 
@@ -176,6 +179,22 @@ def main() -> None:
         except (FileNotFoundError, ValueError) as e:
             logger.error(f"❌ Error loading status mapping: {e}")
             sys.exit(1)
+
+    # Parse --prefix flag (optional override for beads prefix)
+    override_prefix = None
+    if "--prefix" in sys.argv:
+        idx = sys.argv.index("--prefix")
+        if idx + 1 >= len(sys.argv):
+            logger.error("❌ Error: --prefix requires a value")
+            logger.error("Usage: --prefix myproject")
+            sys.exit(1)
+
+        override_prefix = sys.argv[idx + 1]
+        if not override_prefix or not override_prefix.strip():
+            logger.error("❌ Error: --prefix value cannot be empty")
+            sys.exit(1)
+
+        logger.info(f"🔧 Using override prefix: {override_prefix}")
 
     # Find beads database (current directory or override)
     beads_db_path = os.getenv("BEADS_DB_PATH") or str(Path.cwd() / ".beads/beads.db")
@@ -326,7 +345,7 @@ def main() -> None:
         sys.exit(1)
 
     # Initialize beads client and converter
-    beads = BeadsWriter(db_path=beads_db_path)
+    beads = BeadsWriter(db_path=beads_db_path, prefix_override=override_prefix)
     converter = TrelloToBeadsConverter(trello, beads, status_keywords=custom_status_keywords)
 
     # Run conversion

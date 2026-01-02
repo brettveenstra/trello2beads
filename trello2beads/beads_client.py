@@ -74,18 +74,22 @@ class BeadsWriter:
         - bd CLI reference: Run `bd --help` for command documentation
     """
 
-    def __init__(self, db_path: str | None = None, dry_run: bool = False):
+    def __init__(
+        self, db_path: str | None = None, dry_run: bool = False, prefix_override: str | None = None
+    ):
         """Initialize with optional custom database path and dry-run mode
 
         Args:
             db_path: Path to beads database file (optional)
             dry_run: If True, print commands instead of executing them (default: False)
+            prefix_override: Override prefix detection (useful for troubleshooting, optional)
 
         Raises:
             BeadsCommandError: If bd CLI is not available (skipped in dry-run mode)
         """
         self.db_path = db_path
         self.dry_run = dry_run
+        self.prefix_override = prefix_override
 
         # Skip pre-flight check in dry-run mode
         if not dry_run:
@@ -93,7 +97,8 @@ class BeadsWriter:
 
         mode = " (dry-run mode)" if dry_run else ""
         db_info = f" with db_path={db_path}" if db_path else ""
-        logger.info("BeadsWriter initialized%s%s", db_info, mode)
+        prefix_info = f" with prefix_override={prefix_override}" if prefix_override else ""
+        logger.info("BeadsWriter initialized%s%s%s", db_info, mode, prefix_info)
 
     def _check_bd_available(self) -> None:
         """Verify that bd CLI is available and executable
@@ -949,42 +954,245 @@ class BeadsWriter:
         return f"{prefix}-{short_hash}"
 
     def get_prefix(self) -> str:
-        """Get the beads database prefix.
+        """Get the beads database prefix using multiple detection methods with fallbacks.
+
+        Detection order:
+        1. Use override if provided (CLI flag)
+        2. Try reading from SQLite database directly (most reliable)
+        3. Try reading from .beads/config.yaml (legacy/fallback)
+        4. Try `bd config get prefix` (subprocess)
+        5. Try detecting from existing issues (bd list)
 
         Returns:
             The prefix (e.g., "myproject")
 
         Raises:
-            BeadsUpdateError: If prefix retrieval fails
+            BeadsUpdateError: If prefix cannot be detected by any method
         """
+        # Use override if provided
+        if self.prefix_override:
+            logger.debug(f"Using override prefix: {self.prefix_override}")
+            return self.prefix_override
+
         if self.dry_run:
             logger.debug("[DRY RUN] Would get beads prefix")
             return "test-prefix"
 
-        cmd = ["bd"]
+        # Method 1: Try reading from SQLite database directly (MOST RELIABLE)
+        # This is where `bd init --prefix` stores the prefix
+        prefix = self._read_prefix_from_database()
+        if prefix:
+            logger.debug(f"Retrieved prefix from database: '{prefix}'")
+            return prefix
 
-        if self.db_path:
-            cmd.extend(["--db", self.db_path])
+        # Method 2: Try reading .beads/config.yaml
+        prefix = self._read_prefix_from_config_file()
+        if prefix:
+            logger.debug(f"Retrieved prefix from config.yaml: '{prefix}'")
+            return prefix
 
-        cmd.extend(["config", "get", "prefix"])
+        # Method 3: Try bd config get prefix (subprocess)
+        prefix = self._read_prefix_from_bd_config()
+        if prefix:
+            logger.debug(f"Retrieved prefix from bd config: '{prefix}'")
+            return prefix
 
+        # Method 4: Try detecting from existing issues
+        prefix = self._detect_prefix_from_issues()
+        if prefix:
+            logger.debug(f"Detected prefix from existing issues: '{prefix}'")
+            return prefix
+
+        # All methods failed
+        raise BeadsUpdateError(
+            f"Could not detect beads database prefix using any method.\n\n"
+            f"Tried:\n"
+            f"  1. Reading from SQLite database (no config table or prefix not set)\n"
+            f"  2. Reading .beads/config.yaml (not found or invalid)\n"
+            f"  3. Running 'bd config get prefix' (failed or empty)\n"
+            f"  4. Detecting from existing issues (no issues or failed)\n\n"
+            f"Fix this by:\n"
+            f"  1. Set prefix manually: bd config set prefix your-project\n"
+            f"  2. Or use --prefix flag: trello2beads --prefix your-project\n"
+            f"  3. Or reinitialize database: bd init --prefix your-project\n",
+            command=["bd", "config", "get", "prefix"],
+        )
+
+    def _read_prefix_from_database(self) -> str | None:
+        """Try to read prefix from SQLite database directly.
+
+        This is the most reliable method since `bd init --prefix` stores
+        the prefix in the database, not necessarily in config.yaml.
+
+        Returns:
+            Prefix if found, None otherwise
+        """
         try:
+            import sqlite3
+
+            # Determine database path
+            if self.db_path:
+                db_file = Path(self.db_path)
+            else:
+                db_file = Path.cwd() / ".beads" / "beads.db"
+
+            if not db_file.exists():
+                logger.debug(f"Database file not found: {db_file}")
+                return None
+
+            # Connect and query for prefix
+            # Beads typically stores config in a 'config' or 'metadata' table
+            # Try common table/column names
+            with sqlite3.connect(db_file) as conn:
+                cursor = conn.cursor()
+
+                # First, get list of tables for debugging
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = [row[0] for row in cursor.fetchall()]
+                logger.debug(f"Database tables: {tables}")
+
+                # Try different possible schema locations
+                queries = [
+                    # Standard config table with key-value pairs
+                    "SELECT value FROM config WHERE key = 'prefix'",
+                    "SELECT value FROM metadata WHERE key = 'prefix'",
+                    "SELECT prefix FROM config LIMIT 1",
+                    "SELECT prefix FROM metadata LIMIT 1",
+                    # Settings table (another common pattern)
+                    "SELECT value FROM settings WHERE key = 'prefix'",
+                    "SELECT prefix FROM settings LIMIT 1",
+                ]
+
+                for query in queries:
+                    try:
+                        cursor.execute(query)
+                        result = cursor.fetchone()
+                        if result and result[0]:
+                            prefix = str(result[0]).strip()
+                            if prefix:
+                                logger.debug(f"Found prefix in database via query: {query}")
+                                return prefix
+                    except sqlite3.OperationalError as e:
+                        # Table/column doesn't exist, try next query
+                        logger.debug(f"Query failed (expected): {query} - {e}")
+                        continue
+
+                # If we have a config/metadata/settings table but queries failed,
+                # try to dump its schema for debugging
+                for table_name in ["config", "metadata", "settings"]:
+                    if table_name in tables:
+                        try:
+                            cursor.execute(f"PRAGMA table_info({table_name})")
+                            columns = cursor.fetchall()
+                            logger.debug(f"Table '{table_name}' schema: {columns}")
+
+                            # Try selecting all rows to see what's there
+                            cursor.execute(f"SELECT * FROM {table_name} LIMIT 5")
+                            rows = cursor.fetchall()
+                            logger.debug(f"Table '{table_name}' sample data: {rows}")
+                        except Exception as e:
+                            logger.debug(f"Failed to inspect table {table_name}: {e}")
+
+            logger.debug("No prefix found in database using standard queries")
+            return None
+
+        except Exception as e:
+            logger.debug(f"Failed to read prefix from database: {e}")
+            return None
+
+    def _read_prefix_from_config_file(self) -> str | None:
+        """Try to read prefix from .beads/config.yaml file.
+
+        Returns:
+            Prefix if found, None otherwise
+        """
+        try:
+            # Determine config path based on db_path
+            if self.db_path:
+                config_path = Path(self.db_path).parent / "config.yaml"
+            else:
+                config_path = Path.cwd() / ".beads" / "config.yaml"
+
+            if not config_path.exists():
+                logger.debug(f"Config file not found: {config_path}")
+                return None
+
+            # Try to parse YAML (simple approach - avoid dependency)
+            # Config format is typically: prefix: "myproject"
+            with open(config_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("prefix:"):
+                        # Extract prefix value (handle quotes)
+                        value = line.split(":", 1)[1].strip()
+                        value = value.strip('"').strip("'").strip()
+                        if value:
+                            logger.debug(f"Found prefix in config.yaml: {value}")
+                            return value
+
+            logger.debug("Config file exists but no prefix found")
+            return None
+
+        except Exception as e:
+            logger.debug(f"Failed to read config file: {e}")
+            return None
+
+    def _read_prefix_from_bd_config(self) -> str | None:
+        """Try to read prefix using bd config get prefix command.
+
+        Returns:
+            Prefix if found, None otherwise
+        """
+        try:
+            cmd = ["bd"]
+            if self.db_path:
+                cmd.extend(["--db", self.db_path])
+            cmd.extend(["config", "get", "prefix"])
+
             result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=10)
-        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-            raise BeadsUpdateError(
-                f"Failed to get prefix: {e}",
-                command=cmd,
-            ) from e
 
-        if result.returncode != 0:
-            raise BeadsUpdateError(
-                f"Failed to get prefix\nError: {result.stderr}",
-                command=cmd,
-                stderr=result.stderr,
-                returncode=result.returncode,
-            )
+            if result.returncode == 0 and result.stdout.strip():
+                prefix = result.stdout.strip()
+                logger.debug(f"bd config returned: '{prefix}'")
+                return prefix
 
-        return result.stdout.strip()
+            logger.debug(f"bd config failed or returned empty (exit {result.returncode})")
+            return None
+
+        except Exception as e:
+            logger.debug(f"bd config command failed: {e}")
+            return None
+
+    def _detect_prefix_from_issues(self) -> str | None:
+        """Try to detect prefix by listing existing issues.
+
+        Returns:
+            Prefix if detected, None otherwise
+        """
+        try:
+            cmd = ["bd"]
+            if self.db_path:
+                cmd.extend(["--db", self.db_path])
+            cmd.extend(["list", "--format=id"])
+
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=10)
+
+            if result.returncode == 0 and result.stdout.strip():
+                # Parse first issue ID to extract prefix
+                # Format: "prefix-suffix"
+                first_line = result.stdout.strip().split("\n")[0].strip()
+                if "-" in first_line:
+                    prefix = first_line.rsplit("-", 1)[0]  # Everything before last hyphen
+                    if prefix:
+                        logger.debug(f"Detected prefix from issue ID '{first_line}': {prefix}")
+                        return prefix
+
+            logger.debug("No existing issues to detect prefix from")
+            return None
+
+        except Exception as e:
+            logger.debug(f"Failed to detect prefix from issues: {e}")
+            return None
 
     def import_from_jsonl(self, jsonl_path: str) -> dict[str, str]:
         """Import issues from JSONL file (preserves comment timestamps).
@@ -1029,9 +1237,12 @@ class BeadsWriter:
         if self.db_path:
             cmd.extend(["--db", self.db_path])
 
-        cmd.extend(["import", "-i", str(jsonl_file)])
+        # Use --rename-on-import to automatically fix prefix mismatches
+        # This handles cases where generated IDs don't match database prefix
+        cmd.extend(["import", "-i", str(jsonl_file), "--rename-on-import"])
 
         logger.info("Importing issues from JSONL: %s", jsonl_path)
+        logger.info("Using --rename-on-import to handle prefix mismatches automatically")
         logger.debug("Command: %s", " ".join(cmd))
 
         try:
