@@ -818,7 +818,6 @@ class TrelloToBeadsConverter:
 
                 # Create JSONL file with all children (using same pattern as parent import)
                 import tempfile
-                child_id_mapping = {}  # external_ref -> child_id
 
                 with tempfile.NamedTemporaryFile(
                     mode="w", suffix=".jsonl", delete=False

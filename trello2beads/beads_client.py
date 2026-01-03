@@ -1034,16 +1034,16 @@ class BeadsWriter:
 
         # All methods failed
         raise BeadsUpdateError(
-            f"Could not detect beads database prefix using any method.\n\n"
-            f"Tried:\n"
-            f"  1. Reading from SQLite database (no config table or prefix not set)\n"
-            f"  2. Reading .beads/config.yaml (not found or invalid)\n"
-            f"  3. Running 'bd config get prefix' (failed or empty)\n"
-            f"  4. Detecting from existing issues (no issues or failed)\n\n"
-            f"Fix this by:\n"
-            f"  1. Set prefix manually: bd config set prefix your-project\n"
-            f"  2. Or use --prefix flag: trello2beads --prefix your-project\n"
-            f"  3. Or reinitialize database: bd init --prefix your-project\n",
+            "Could not detect beads database prefix using any method.\n\n"
+            "Tried:\n"
+            "  1. Reading from SQLite database (no config table or prefix not set)\n"
+            "  2. Reading .beads/config.yaml (not found or invalid)\n"
+            "  3. Running 'bd config get prefix' (failed or empty)\n"
+            "  4. Detecting from existing issues (no issues or failed)\n\n"
+            "Fix this by:\n"
+            "  1. Set prefix manually: bd config set prefix your-project\n"
+            "  2. Or use --prefix flag: trello2beads --prefix your-project\n"
+            "  3. Or reinitialize database: bd init --prefix your-project\n",
             command=["bd", "config", "get", "prefix"],
         )
 
@@ -1060,10 +1060,7 @@ class BeadsWriter:
             import sqlite3
 
             # Determine database path
-            if self.db_path:
-                db_file = Path(self.db_path)
-            else:
-                db_file = Path.cwd() / ".beads" / "beads.db"
+            db_file = Path(self.db_path) if self.db_path else Path.cwd() / ".beads" / "beads.db"
 
             if not db_file.exists():
                 logger.debug(f"Database file not found: {db_file}")
