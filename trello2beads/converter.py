@@ -657,7 +657,7 @@ class TrelloToBeadsConverter:
                         issue["id"] = issue_id
 
                         # Store mapping for later (to match renamed IDs)
-                        external_ref = issue.get("external_ref")
+                        external_ref = issue.get("external_ref")  # type: ignore[assignment]
                         if external_ref:
                             generated_id_to_external_ref[issue_id] = external_ref
 
@@ -681,7 +681,7 @@ class TrelloToBeadsConverter:
                     # (maintains same order as issue_requests for zip with card_metadata)
                     issue_ids = []
                     for issue in issue_requests:
-                        external_ref = issue.get("external_ref")
+                        external_ref = issue.get("external_ref")  # type: ignore[assignment]
                         issue_id = external_ref_to_id.get(external_ref) if external_ref else None
                         issue_ids.append(issue_id)
 
@@ -841,7 +841,7 @@ class TrelloToBeadsConverter:
                         child_issue["id"] = child_id
 
                         # Store mapping
-                        external_ref = child_issue.get("external_ref")
+                        external_ref = child_issue.get("external_ref")  # type: ignore[assignment]
                         if external_ref:
                             child_generated_id_to_external_ref[child_id] = external_ref
 
@@ -859,7 +859,7 @@ class TrelloToBeadsConverter:
                     logger.info("🔗 Creating parent-child dependencies...")
                     deps_created = 0
                     for child_external_ref, parent_id, child_title, item_state in child_parent_map:
-                        child_id = child_external_ref_to_id.get(child_external_ref)
+                        child_id = child_external_ref_to_id.get(child_external_ref)  # type: ignore[assignment]
                         if child_id:
                             try:
                                 self.beads.add_dependency(child_id, parent_id, "parent-child")
@@ -888,7 +888,7 @@ class TrelloToBeadsConverter:
                         child_closures_failed = 0
 
                         for child_external_ref in child_closures:
-                            child_id = child_external_ref_to_id.get(child_external_ref)
+                            child_id = child_external_ref_to_id.get(child_external_ref)  # type: ignore[assignment]
                             if not child_id:
                                 logger.warning(
                                     f"⚠️  Cannot close {child_external_ref}: not found in mapping"
