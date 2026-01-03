@@ -407,6 +407,7 @@ class TrelloToBeadsConverter:
         validation_warnings: list[str] = []
         failed_issues: list[dict] = []
         failed_dependencies: int = 0
+        pending_closures: list[str] = []  # Track issues that should be closed after import
         broken_references: list[str] = []
         epic_count = 0
         child_task_count = 0
@@ -501,6 +502,16 @@ class TrelloToBeadsConverter:
             list_name = self.list_map.get(card["idList"], "Unknown")
             status = self.list_to_status(list_name)
 
+            # External reference for debugging (Trello short link)
+            external_ref = f"trello:{card['shortLink']}"
+
+            # WORKAROUND: bd import --rename-on-import skips closed issues
+            # Import as "open" and track for post-import closure
+            if status == "closed":
+                status = "open"  # Temporary status for import
+                pending_closures.append(external_ref)  # Track for post-import closure
+                logger.debug(f"Tracking {external_ref} for post-import closure")
+
             # Create labels: preserve list name for querying
             labels = [f"list:{list_name}"]
 
@@ -509,9 +520,6 @@ class TrelloToBeadsConverter:
                 for label in card["labels"]:
                     if label.get("name"):
                         labels.append(f"trello-label:{label['name']}")
-
-            # External reference for debugging (Trello short link)
-            external_ref = f"trello:{card['shortLink']}"
 
             # Build description
             desc_parts = []
@@ -681,6 +689,36 @@ class TrelloToBeadsConverter:
                     # Clean up temp file
                     Path(jsonl_path).unlink(missing_ok=True)
 
+            # Phase 1b: Update parent issues that should be closed
+            # WORKAROUND: bd import skips closed issues, so we imported them as "open"
+            # Now update them to "closed" after successful import
+            # Note: Only handle parent cards here; children handled separately after child import
+            parent_closures = [ref for ref in pending_closures if ":item-" not in ref]
+            if parent_closures:
+                logger.info(f"🔄 Updating {len(parent_closures)} parent issues to closed status...")
+                closures_succeeded = 0
+                closures_failed = 0
+
+                for external_ref in parent_closures:
+                    issue_id = external_ref_to_id.get(external_ref)
+                    if not issue_id:
+                        logger.warning(f"⚠️  Cannot close {external_ref}: issue not found in mapping")
+                        closures_failed += 1
+                        continue
+
+                    try:
+                        self.beads.update_status(issue_id, "closed")
+                        closures_succeeded += 1
+                        logger.debug(f"✅ Closed {issue_id} ({external_ref})")
+                    except Exception as e:
+                        logger.warning(f"⚠️  Failed to close {issue_id} ({external_ref}): {e}")
+                        closures_failed += 1
+
+                logger.info(
+                    f"✅ Updated {closures_succeeded} parent issues to closed "
+                    f"({closures_failed} failed)"
+                )
+
             # Phase 1c: Post-process - build mappings and handle checklists
             for issue_id, meta in zip(issue_ids, card_metadata, strict=True):
                 card = meta["card"]
@@ -725,8 +763,15 @@ class TrelloToBeadsConverter:
                             item_name = item["name"]
                             item_state = item.get("state", "incomplete")
 
+                            # External reference for child (before status workaround)
+                            child_external_ref = f"{external_ref}:item-{item_id}"
+
                             # Determine child status based on completion
+                            # WORKAROUND: bd import skips closed issues (same as parent cards)
                             child_status = "closed" if item_state == "complete" else "open"
+                            if child_status == "closed":
+                                child_status = "open"  # Temporary - will update after import
+                                pending_closures.append(child_external_ref)  # Track for closure
 
                             # Detect URL-only checklist items and generate proper title
                             is_url_only = item_name.strip().startswith(("http://", "https://"))
@@ -751,7 +796,6 @@ class TrelloToBeadsConverter:
                             )
 
                             # Collect child issue data for batch creation
-                            child_external_ref = f"{external_ref}:item-{item_id}"
                             child_issue = {
                                 "title": child_title,
                                 "description": child_desc,
@@ -786,8 +830,10 @@ class TrelloToBeadsConverter:
 
                     for idx, child_issue in enumerate(child_issues_data):
                         # Generate valid beads ID (offset index to avoid collision with parents)
-                        # Parents use indices 0-(n-1), children use indices n-(n+m-1)
-                        child_idx = parent_issues_created + idx
+                        # Parents use indices 0-(n-1) for n total cards, children use indices n-(n+m-1)
+                        # CRITICAL: Use len(issue_requests) NOT parent_issues_created to avoid collisions
+                        # (Some parents may have failed import, but their indices are still consumed)
+                        child_idx = len(issue_requests) + idx
                         child_id = self.beads.generate_issue_id("import", child_idx)
                         child_issue["id"] = child_id
 
@@ -825,6 +871,34 @@ class TrelloToBeadsConverter:
                             logger.warning(f"Child issue not found for {child_external_ref}")
 
                     logger.info(f"✅ Created {deps_created} parent-child dependencies")
+
+                    # Update child issues that should be closed
+                    # Count how many children are tracked for closure
+                    child_closures = [ref for ref in pending_closures if ":item-" in ref]
+                    if child_closures:
+                        logger.info(f"🔄 Updating {len(child_closures)} child issues to closed status...")
+                        child_closures_succeeded = 0
+                        child_closures_failed = 0
+
+                        for child_external_ref in child_closures:
+                            child_id = child_external_ref_to_id.get(child_external_ref)
+                            if not child_id:
+                                logger.warning(f"⚠️  Cannot close {child_external_ref}: not found in mapping")
+                                child_closures_failed += 1
+                                continue
+
+                            try:
+                                self.beads.update_status(child_id, "closed")
+                                child_closures_succeeded += 1
+                                logger.debug(f"✅ Closed {child_id} ({child_external_ref})")
+                            except Exception as e:
+                                logger.warning(f"⚠️  Failed to close {child_id}: {e}")
+                                child_closures_failed += 1
+
+                        logger.info(
+                            f"✅ Updated {child_closures_succeeded} child issues to closed "
+                            f"({child_closures_failed} failed)"
+                        )
 
                 finally:
                     # Clean up temp file

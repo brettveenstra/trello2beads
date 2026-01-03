@@ -1317,28 +1317,12 @@ class BeadsWriter:
 
         logger.info("✅ Import completed successfully")
         if result.stdout:
-            logger.debug("Import output: %s", result.stdout)
-
-        # Sync database with JSONL (import writes to JSONL, DB needs to catch up)
-        # Without this, 'bd list' will fail with "Database out of sync" error
-        logger.info("Syncing database with JSONL...")
-        sync_cmd = ["bd"]
-        if self.db_path:
-            sync_cmd.extend(["--db", self.db_path])
-        sync_cmd.extend(["sync", "--import-only"])
-
-        try:
-            sync_result = subprocess.run(
-                sync_cmd, capture_output=True, text=True, check=False, timeout=60, env=self._get_subprocess_env()
-            )
-            if sync_result.returncode != 0:
-                logger.warning(
-                    "Sync warning (non-fatal): %s", sync_result.stderr.strip() if sync_result.stderr else "(none)"
-                )
-        except Exception as e:
-            logger.warning(f"Sync failed (non-fatal): {e}")
+            logger.info("Import stdout: %s", result.stdout)
+        if result.stderr:
+            logger.info("Import stderr: %s", result.stderr)
 
         # Build mapping: match generated IDs to renamed IDs by suffix
+        # Note: bd import already wrote to both database AND JSONL, no sync needed
         # We generated IDs like "import-a3f8", beads renamed to "accel-a3f8"
         # Suffix stays same, only prefix changes
         logger.info("Matching renamed IDs by suffix...")
@@ -1363,10 +1347,12 @@ class BeadsWriter:
             Dict mapping external_ref to renamed issue_id
         """
         # Get all issues from database (with unlimited limit)
+        # Use --allow-stale since JSONL may not be committed to git yet
+        # (bd import writes to JSONL but doesn't commit)
         cmd = ["bd"]
         if self.db_path:
             cmd.extend(["--db", self.db_path])
-        cmd.extend(["list", "--json", "--limit", "0"])
+        cmd.extend(["--allow-stale", "list", "--json", "--limit", "0"])
 
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60, env=self._get_subprocess_env())
@@ -1382,6 +1368,8 @@ class BeadsWriter:
             ) from e
 
         if result.returncode != 0:
+            logger.error("bd list failed - returncode: %d", result.returncode)
+            logger.error("bd list stderr: %s", result.stderr)
             raise BeadsUpdateError(
                 f"Failed to query issue list\nError: {result.stderr}",
                 command=cmd,
@@ -1390,6 +1378,7 @@ class BeadsWriter:
             )
 
         # Parse JSON output
+        logger.debug("bd list returned %d bytes of JSON", len(result.stdout))
         try:
             issues = json.loads(result.stdout)
         except json.JSONDecodeError as e:
