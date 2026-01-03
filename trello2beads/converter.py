@@ -702,7 +702,9 @@ class TrelloToBeadsConverter:
                 for external_ref in parent_closures:
                     issue_id = external_ref_to_id.get(external_ref)
                     if not issue_id:
-                        logger.warning(f"⚠️  Cannot close {external_ref}: issue not found in mapping")
+                        logger.warning(
+                            f"⚠️  Cannot close {external_ref}: issue not found in mapping"
+                        )
                         closures_failed += 1
                         continue
 
@@ -791,9 +793,7 @@ class TrelloToBeadsConverter:
                                     child_title = f"[{checklist_name}] {item_name}"
 
                             # Child description references parent epic
-                            child_desc = (
-                                f"Part of epic: {card['name']}\nChecklist: {checklist_name}{url_in_description}"
-                            )
+                            child_desc = f"Part of epic: {card['name']}\nChecklist: {checklist_name}{url_in_description}"
 
                             # Collect child issue data for batch creation
                             child_issue = {
@@ -806,7 +806,9 @@ class TrelloToBeadsConverter:
                                 "external_ref": child_external_ref,
                             }
                             child_issues_data.append(child_issue)
-                            child_parent_map.append((child_external_ref, issue_id, child_title, item_state))
+                            child_parent_map.append(
+                                (child_external_ref, issue_id, child_title, item_state)
+                            )
 
                             status_icon = "✓" if item_state == "complete" else "☐"
                             logger.info(f"  └─ {status_icon} Queued child: {child_title}")
@@ -814,7 +816,9 @@ class TrelloToBeadsConverter:
             # Phase 1d: Batch create all child issues via JSONL import
             if child_issues_data and not dry_run:
                 logger.info("")
-                logger.info(f"📦 Creating {len(child_issues_data)} child issues via JSONL import...")
+                logger.info(
+                    f"📦 Creating {len(child_issues_data)} child issues via JSONL import..."
+                )
 
                 # Create JSONL file with all children (using same pattern as parent import)
                 import tempfile
@@ -865,7 +869,9 @@ class TrelloToBeadsConverter:
                                 child_issues_created += 1
                                 child_task_count += 1
                             except Exception as e:
-                                logger.warning(f"Failed to add dependency {child_id} → {parent_id}: {e}")
+                                logger.warning(
+                                    f"Failed to add dependency {child_id} → {parent_id}: {e}"
+                                )
                         else:
                             logger.warning(f"Child issue not found for {child_external_ref}")
 
@@ -875,14 +881,18 @@ class TrelloToBeadsConverter:
                     # Count how many children are tracked for closure
                     child_closures = [ref for ref in pending_closures if ":item-" in ref]
                     if child_closures:
-                        logger.info(f"🔄 Updating {len(child_closures)} child issues to closed status...")
+                        logger.info(
+                            f"🔄 Updating {len(child_closures)} child issues to closed status..."
+                        )
                         child_closures_succeeded = 0
                         child_closures_failed = 0
 
                         for child_external_ref in child_closures:
                             child_id = child_external_ref_to_id.get(child_external_ref)
                             if not child_id:
-                                logger.warning(f"⚠️  Cannot close {child_external_ref}: not found in mapping")
+                                logger.warning(
+                                    f"⚠️  Cannot close {child_external_ref}: not found in mapping"
+                                )
                                 child_closures_failed += 1
                                 continue
 
