@@ -39,8 +39,22 @@ def mock_bd_cli():
         result.stderr = ""
 
         if cmd[0] == "bd" and len(cmd) > 1:
-            if cmd[1] == "config" and len(cmd) > 2 and cmd[2] == "get" and cmd[3] == "prefix":
-                # Mock: bd config get prefix
+            # Handle optional --db flag
+            cmd_start = 1
+            if cmd[1] == "--db" and len(cmd) > 3:
+                cmd_start = 3  # Skip --db and path
+
+            if len(cmd) <= cmd_start:
+                result.stdout = ""
+                return result
+
+            if (
+                cmd[cmd_start] == "config"
+                and len(cmd) > cmd_start + 2
+                and cmd[cmd_start + 1] == "get"
+                and cmd[cmd_start + 2] == "prefix"
+            ):
+                # Mock: bd [--db <path>] config get prefix
                 result.stdout = "testproject\n"
 
             elif "import" in cmd:
@@ -57,7 +71,7 @@ def mock_bd_cli():
                     with open(jsonl_path) as f:
                         for line in f:
                             issue_data = json.loads(line)
-                            # Extract relevant fields
+                            # Extract relevant fields (preserve external_ref for mapping)
                             created_issues.append(
                                 {
                                     "id": issue_data.get("id"),
@@ -65,6 +79,7 @@ def mock_bd_cli():
                                     "description": issue_data.get("description"),
                                     "status": issue_data.get("status"),
                                     "labels": issue_data.get("labels", []),
+                                    "external_ref": issue_data.get("external_ref"),
                                 }
                             )
                             # Also capture comments if they exist in the JSONL
@@ -80,7 +95,7 @@ def mock_bd_cli():
                                 )
                     result.stdout = f"✓ Imported {len(created_issues)} issues\n"
 
-            elif cmd[1] == "create":
+            elif cmd[cmd_start] == "create":
                 # Generate fake issue ID
                 issue_counter[0] += 1
                 issue_id = f"testproject-{issue_counter[0]:03d}"
@@ -100,21 +115,31 @@ def mock_bd_cli():
                 created_issues.append(issue_data)
                 result.stdout = f"✓ Created issue: {issue_id}\n"
 
-            elif cmd[1] == "update":
+            elif cmd[cmd_start] == "update":
                 # Mock update command
-                result.stdout = f"✓ Updated issue: {cmd[2]}\n"
+                result.stdout = f"✓ Updated issue: {cmd[cmd_start + 1]}\n"
 
-            elif cmd[1] == "comment":
-                # Mock comment command: bd comment <issue-id> <text> --author <author>
-                comment_data = {"_type": "comment", "issue_id": cmd[2]}
-                if len(cmd) > 3:
-                    comment_data["text"] = cmd[3]
+            elif cmd[cmd_start] == "comment":
+                # Mock comment command: bd [--db <path>] comment <issue-id> <text> --author <author>
+                comment_data = {"_type": "comment", "issue_id": cmd[cmd_start + 1]}
+                if len(cmd) > cmd_start + 2:
+                    comment_data["text"] = cmd[cmd_start + 2]
                 # Find --author flag
                 for i, arg in enumerate(cmd):
                     if arg == "--author" and i + 1 < len(cmd):
                         comment_data["author"] = cmd[i + 1]
                 created_issues.append(comment_data)
-                result.stdout = f"✓ Added comment to {cmd[2]}\n"
+                result.stdout = f"✓ Added comment to {cmd[cmd_start + 1]}\n"
+
+            elif "list" in cmd:
+                # Mock list command: bd [--db <path>] [--allow-stale] list --json [--limit N]
+                # Return all created issues (excluding comments) as JSON
+                issues = [issue for issue in created_issues if issue.get("_type") != "comment"]
+                result.stdout = json.dumps(issues)
+
+            else:
+                # Default handler for unrecognized bd commands
+                result.stdout = ""
 
         return result
 

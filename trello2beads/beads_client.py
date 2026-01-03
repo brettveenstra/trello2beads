@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -1404,7 +1405,8 @@ class BeadsWriter:
             )
 
         # Parse JSON output
-        logger.debug("bd list returned %d bytes of JSON", len(result.stdout))
+        with contextlib.suppress(TypeError):
+            logger.debug("bd list returned %d bytes of JSON", len(result.stdout))
         try:
             issues = json.loads(result.stdout)
         except json.JSONDecodeError as e:

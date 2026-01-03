@@ -99,7 +99,7 @@ class TestBasicCardConversion:
         # Mock JSONL import methods
         captured_jsonl_data = []
 
-        def mock_import_from_jsonl(jsonl_path):
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
             # Read and capture the JSONL content
             with open(jsonl_path) as f:
                 for line in f:
@@ -163,7 +163,7 @@ class TestBasicCardConversion:
 
         captured_jsonl_data = []
 
-        def mock_import_from_jsonl(jsonl_path):
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
             with open(jsonl_path) as f:
                 for line in f:
                     issue_data = json.loads(line)
@@ -244,7 +244,7 @@ class TestBasicCardConversion:
 
         captured_jsonl_data = []
 
-        def mock_import_from_jsonl(jsonl_path):
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
             import json
 
             with open(jsonl_path) as f:
@@ -272,9 +272,11 @@ class TestBasicCardConversion:
         assert captured_jsonl_data[1]["status"] == "in_progress"
         assert "list:Doing" in captured_jsonl_data[1]["labels"]
 
-        # Card 3: Done → closed
+        # Card 3: Done → closed (but written as "open" in JSONL, updated after import)
         assert captured_jsonl_data[2]["title"] == "Card 3"
-        assert captured_jsonl_data[2]["status"] == "closed"
+        assert (
+            captured_jsonl_data[2]["status"] == "open"
+        )  # Workaround: written as "open", updated to "closed" post-import
         assert "list:Done" in captured_jsonl_data[2]["labels"]
 
     def test_convert_builds_mapping_structures(self):
@@ -308,7 +310,7 @@ class TestBasicCardConversion:
 
         captured_jsonl_data = []
 
-        def mock_import_from_jsonl(jsonl_path):
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
             import json
 
             with open(jsonl_path) as f:
@@ -505,9 +507,8 @@ class TestDescriptionBuilding:
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
         captured_jsonl_data = []
-        created_child_issues = []
 
-        def mock_import_from_jsonl(jsonl_path):
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
             import json
 
             with open(jsonl_path) as f:
@@ -516,22 +517,16 @@ class TestDescriptionBuilding:
                     captured_jsonl_data.append(issue_data)
             return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
 
-        def mock_create_child(**kwargs):
-            issue_id = f"test-child-{len(created_child_issues)}"
-            created_child_issues.append({"id": issue_id, **kwargs})
-            return issue_id
-
         with (
             patch.object(converter.beads, "get_prefix", return_value="testproject"),
             patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
             patch.object(converter.beads, "add_dependency"),
-            patch.object(converter.beads, "create_issue", side_effect=mock_create_child),
+            patch.object(converter.beads, "update_status"),  # Mock post-import closure
         ):
             converter.convert()
 
-        # Should create 1 epic (via JSONL) + 2 child tasks (via create_issue) = 3 issues total
-        assert len(captured_jsonl_data) == 1  # Epic parent
-        assert len(created_child_issues) == 2  # Child items
+        # Should create 1 epic + 2 child tasks via JSONL = 3 issues total
+        assert len(captured_jsonl_data) == 3
 
         # First issue should be the epic
         epic = captured_jsonl_data[0]
@@ -541,15 +536,17 @@ class TestDescriptionBuilding:
         # Checklist should NOT be in description anymore
         assert "## Checklists" not in epic["description"]
 
-        # Second issue should be completed child task
-        child1 = created_child_issues[0]
-        assert child1["issue_type"] == "task"
+        # Second issue should be completed child task (written as "open", updated to "closed" post-import)
+        child1 = captured_jsonl_data[1]
+        assert child1["type"] == "task"  # Note: child issues use "type" not "issue_type"
         assert child1["title"] == "Install dependencies"
-        assert child1["status"] == "closed"  # complete
+        assert (
+            child1["status"] == "open"
+        )  # Workaround: written as "open", updated to "closed" post-import
 
         # Third issue should be incomplete child task
-        child2 = created_child_issues[1]
-        assert child2["issue_type"] == "task"
+        child2 = captured_jsonl_data[2]
+        assert child2["type"] == "task"
         assert child2["title"] == "Configure settings"
         assert child2["status"] == "open"  # incomplete
 
@@ -595,7 +592,7 @@ class TestDescriptionBuilding:
 
         captured_jsonl_data = []
 
-        def mock_import_from_jsonl(jsonl_path):
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
             import json
 
             with open(jsonl_path) as f:
@@ -671,7 +668,7 @@ class TestCommentFetching:
 
         captured_jsonl_data = []
 
-        def mock_import_from_jsonl(jsonl_path):
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
             import json
 
             with open(jsonl_path) as f:
@@ -774,7 +771,7 @@ class TestErrorHandling:
 
         captured_jsonl_data = []
 
-        def mock_import_from_jsonl(jsonl_path):
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
             import json
 
             with open(jsonl_path) as f:
@@ -841,11 +838,10 @@ class TestChecklistToEpicConversion:
 
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
-        # Track JSONL import (parent epic)
+        # Track JSONL import (parent epic + children)
         captured_jsonl_data = []
-        created_child_issues = []
 
-        def mock_import_from_jsonl(jsonl_path):
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
             import json
 
             with open(jsonl_path) as f:
@@ -853,11 +849,6 @@ class TestChecklistToEpicConversion:
                     issue_data = json.loads(line)
                     captured_jsonl_data.append(issue_data)
             return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
-
-        def mock_create_child(**kwargs):
-            issue_id = f"test-child-{len(created_child_issues)}"
-            created_child_issues.append({"id": issue_id, **kwargs})
-            return issue_id
 
         # Track add_dependency calls
         dependencies = []
@@ -868,32 +859,33 @@ class TestChecklistToEpicConversion:
         with (
             patch.object(converter.beads, "get_prefix", return_value="testproject"),
             patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
-            patch.object(converter.beads, "create_issue", side_effect=mock_create_child),
             patch.object(converter.beads, "add_dependency", side_effect=mock_add_dependency),
+            patch.object(converter.beads, "update_status"),  # Mock post-import closure
         ):
             converter.convert()
 
-        # Should create 1 epic (JSONL) + 3 child tasks (create_issue)
-        assert len(captured_jsonl_data) == 1
-        assert len(created_child_issues) == 3
+        # Should create 1 epic + 3 child tasks via JSONL
+        assert len(captured_jsonl_data) == 4
 
-        # Epic should be in JSONL
+        # Epic should be first in JSONL
         epic_issue = captured_jsonl_data[0]
         assert epic_issue["issue_type"] == "epic"
         assert epic_issue["title"] == "Epic Card"
 
-        # Children should be created via create_issue
-        assert created_child_issues[0]["issue_type"] == "task"
-        assert created_child_issues[0]["title"] == "First task"
-        assert created_child_issues[0]["status"] == "open"  # incomplete
+        # Children should be in JSONL (written as "open", updated to "closed" post-import)
+        assert captured_jsonl_data[1]["type"] == "task"
+        assert captured_jsonl_data[1]["title"] == "First task"
+        assert captured_jsonl_data[1]["status"] == "open"  # incomplete
 
-        assert created_child_issues[1]["issue_type"] == "task"
-        assert created_child_issues[1]["title"] == "Second task"
-        assert created_child_issues[1]["status"] == "closed"  # complete
+        assert captured_jsonl_data[2]["type"] == "task"
+        assert captured_jsonl_data[2]["title"] == "Second task"
+        assert (
+            captured_jsonl_data[2]["status"] == "open"
+        )  # Workaround: complete task written as "open", updated to "closed" post-import
 
-        assert created_child_issues[2]["issue_type"] == "task"
-        assert created_child_issues[2]["title"] == "Third task"
-        assert created_child_issues[2]["status"] == "open"  # incomplete
+        assert captured_jsonl_data[3]["type"] == "task"
+        assert captured_jsonl_data[3]["title"] == "Third task"
+        assert captured_jsonl_data[3]["status"] == "open"  # incomplete
 
         # Should have 3 parent-child dependencies
         assert len(dependencies) == 3
@@ -903,9 +895,9 @@ class TestChecklistToEpicConversion:
             assert dep["parent"] == epic_id
 
         # Child issues should have epic label
-        assert f"epic:{epic_id}" in created_child_issues[0]["labels"]
-        assert f"epic:{epic_id}" in created_child_issues[1]["labels"]
-        assert f"epic:{epic_id}" in created_child_issues[2]["labels"]
+        assert f"epic:{epic_id}" in captured_jsonl_data[1]["labels"]
+        assert f"epic:{epic_id}" in captured_jsonl_data[2]["labels"]
+        assert f"epic:{epic_id}" in captured_jsonl_data[3]["labels"]
 
     def test_card_without_checklist_remains_task(self):
         """Should keep cards without checklists as task type"""
@@ -939,7 +931,7 @@ class TestChecklistToEpicConversion:
 
         captured_jsonl_data = []
 
-        def mock_import_from_jsonl(jsonl_path):
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
             import json
 
             with open(jsonl_path) as f:
@@ -1005,9 +997,8 @@ class TestChecklistToEpicConversion:
         converter = TrelloToBeadsConverter(mock_trello, mock_beads)
 
         captured_jsonl_data = []
-        created_child_issues = []
 
-        def mock_import_from_jsonl(jsonl_path):
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
             import json
 
             with open(jsonl_path) as f:
@@ -1016,26 +1007,20 @@ class TestChecklistToEpicConversion:
                     captured_jsonl_data.append(issue_data)
             return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
 
-        def mock_create_child(**kwargs):
-            issue_id = f"test-child-{len(created_child_issues)}"
-            created_child_issues.append({"id": issue_id, **kwargs})
-            return issue_id
-
         with (
             patch.object(converter.beads, "get_prefix", return_value="testproject"),
             patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
-            patch.object(converter.beads, "create_issue", side_effect=mock_create_child),
             patch.object(converter.beads, "add_dependency"),
+            patch.object(converter.beads, "update_status"),  # Mock post-import closure
         ):
             converter.convert()
 
-        # Should create 1 epic (JSONL) + 2 child tasks (create_issue)
-        assert len(captured_jsonl_data) == 1
-        assert len(created_child_issues) == 2
+        # Should create 1 epic + 2 child tasks via JSONL
+        assert len(captured_jsonl_data) == 3
 
         # Child titles should include checklist names
-        assert created_child_issues[0]["title"] == "[Backend] API endpoint"
-        assert created_child_issues[1]["title"] == "[Frontend] UI component"
+        assert captured_jsonl_data[1]["title"] == "[Backend] API endpoint"
+        assert captured_jsonl_data[2]["title"] == "[Frontend] UI component"
 
 
 class TestRelatedDependencies:
@@ -1085,7 +1070,7 @@ class TestRelatedDependencies:
 
         captured_jsonl_data = []
 
-        def mock_import_from_jsonl(jsonl_path):
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
             import json
 
             with open(jsonl_path) as f:
@@ -1241,7 +1226,7 @@ class TestRelatedDependencies:
 
         captured_jsonl_data = []
 
-        def mock_import_from_jsonl(jsonl_path):
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
             import json
 
             with open(jsonl_path) as f:
