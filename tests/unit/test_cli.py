@@ -366,3 +366,124 @@ class TestCLIEntryPoint:
 
             # Verify SSL warnings were disabled
             mock_disable_warnings.assert_called_once()
+
+    def test_main_env_file_parsing_with_comments(self, tmp_path):
+        """Should parse .env file correctly, handling comments and blank lines"""
+        env_file = tmp_path / "custom.env"
+        env_file.write_text(
+            "# This is a comment\n"
+            "TRELLO_API_KEY=file-key\n"
+            "\n"  # Blank line
+            "  # Another comment with leading space\n"
+            "TRELLO_TOKEN=file-token\n"
+            "TRELLO_BOARD_ID=file-board\n"
+            "INVALID_LINE_NO_EQUALS\n"  # Should be skipped
+            "KEY_WITH_EQUALS=value=with=equals\n"  # Multiple = signs
+        )
+
+        with (
+            patch.dict(
+                "os.environ",
+                {"TRELLO_ENV_FILE": str(env_file)},
+                clear=True,
+            ),
+            patch("sys.argv", ["trello2beads"]),
+            patch("pathlib.Path.exists", return_value=False),
+            pytest.raises(SystemExit),
+        ):
+            main()
+            # Verify env vars were loaded from file
+            import os
+
+            assert os.environ.get("TRELLO_API_KEY") == "file-key"
+            assert os.environ.get("TRELLO_TOKEN") == "file-token"
+            assert os.environ.get("TRELLO_BOARD_ID") == "file-board"
+            assert os.environ.get("KEY_WITH_EQUALS") == "value=with=equals"
+
+    def test_main_prefix_flag_missing_value(self, capsys):
+        """Should exit with error if --prefix has no value"""
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "TRELLO_API_KEY": "test-key",
+                    "TRELLO_TOKEN": "test-token",
+                    "TRELLO_BOARD_ID": "test-board",
+                },
+            ),
+            patch("sys.argv", ["trello2beads", "--prefix"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "--prefix requires a value" in captured.err
+
+    def test_main_prefix_flag_empty_value(self, capsys):
+        """Should exit with error if --prefix value is empty"""
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "TRELLO_API_KEY": "test-key",
+                    "TRELLO_TOKEN": "test-token",
+                    "TRELLO_BOARD_ID": "test-board",
+                },
+            ),
+            patch("sys.argv", ["trello2beads", "--prefix", ""]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "--prefix value cannot be empty" in captured.err
+
+    def test_main_prefix_flag_whitespace_value(self, capsys):
+        """Should exit with error if --prefix value is only whitespace"""
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "TRELLO_API_KEY": "test-key",
+                    "TRELLO_TOKEN": "test-token",
+                    "TRELLO_BOARD_ID": "test-board",
+                },
+            ),
+            patch("sys.argv", ["trello2beads", "--prefix", "   "]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "--prefix value cannot be empty" in captured.err
+
+    def test_main_prefix_flag_valid_value(self):
+        """Should accept valid --prefix value and pass to BeadsWriter"""
+
+        def mock_path_exists(self):
+            # Mock beads database exists
+            return ".beads" in str(self)
+
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "TRELLO_API_KEY": "test-key",
+                    "TRELLO_TOKEN": "test-token",
+                    "TRELLO_BOARD_ID": "test-board",
+                },
+            ),
+            patch("sys.argv", ["trello2beads", "--prefix", "myproject"]),
+            patch("pathlib.Path.exists", mock_path_exists),
+            patch("trello2beads.cli.TrelloReader"),
+            patch("trello2beads.cli.BeadsWriter") as mock_beads,
+            patch("trello2beads.cli.TrelloToBeadsConverter"),
+        ):
+            main()
+
+            # Verify BeadsWriter was called with prefix_override
+            call_kwargs = mock_beads.call_args.kwargs
+            assert call_kwargs["prefix_override"] == "myproject"

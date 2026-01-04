@@ -915,3 +915,105 @@ class TestGetIssue:
             # Should return mock data
             assert issue["id"] == "dryrun-mock"
             assert issue["status"] == "open"
+
+
+class TestBatchOperations:
+    """Test batch creation operations"""
+
+    def test_batch_create_issues_serial_execution(self):
+        """Test serial batch creation with max_workers=1 (different code path than parallel)"""
+        writer = BeadsWriter(dry_run=True)
+
+        # Create 15 issues to test progress logging
+        issues = [
+            {"title": f"Task {i}", "description": f"Description {i}", "priority": 2}
+            for i in range(15)
+        ]
+
+        # Serial mode (max_workers=1) uses different code path than parallel execution
+        ids = writer.batch_create_issues(issues, max_workers=1, show_progress=True)
+
+        assert len(ids) == 15
+        # Dry-run mode returns mock IDs
+        assert all(issue_id == "dryrun-mock" for issue_id in ids)
+
+    def test_batch_create_issues_serial_without_progress(self):
+        """Test serial batch creation without progress bar"""
+        writer = BeadsWriter(dry_run=True)
+
+        issues = [
+            {"title": "Task 1", "priority": 1},
+            {"title": "Task 2", "priority": 2},
+        ]
+
+        # Test serial mode without progress bar
+        ids = writer.batch_create_issues(issues, max_workers=1, show_progress=False)
+
+        assert len(ids) == 2
+        assert all(issue_id == "dryrun-mock" for issue_id in ids)
+
+
+class TestIDGeneration:
+    """Test issue ID generation"""
+
+    def test_generate_issue_id(self):
+        """Test generating beads-compatible issue IDs with Base36 encoding"""
+        writer = BeadsWriter(dry_run=True)
+
+        # Test ID generation format
+        id1 = writer.generate_issue_id("import", 0)
+        assert id1.startswith("import-")
+        assert len(id1) == len("import-") + 4  # 4-char suffix
+        assert id1[7:].islower()  # Suffix is lowercase base36
+
+        id2 = writer.generate_issue_id("import", 123)
+        assert id2.startswith("import-")
+        assert len(id2) == len("import-") + 4
+
+        id3 = writer.generate_issue_id("myproject", 999)
+        assert id3.startswith("myproject-")
+        assert len(id3) == len("myproject-") + 4
+
+        # Test uniqueness - different indices should produce different IDs
+        id4 = writer.generate_issue_id("test", 1)
+        id5 = writer.generate_issue_id("test", 2)
+        assert id4 != id5
+        assert id4.startswith("test-")
+        assert id5.startswith("test-")
+
+
+class TestJSONLImport:
+    """Test JSONL import operations"""
+
+    def test_import_from_jsonl_dry_run(self, tmp_path):
+        """Test dry-run mode for JSONL import"""
+        writer = BeadsWriter(dry_run=True)
+
+        # Create a temporary JSONL file
+        jsonl_file = tmp_path / "issues.jsonl"
+        jsonl_file.write_text(
+            '{"id":"import-abc1","title":"Task 1","external_ref":"trello:abc1"}\n'
+            '{"id":"import-abc2","title":"Task 2","external_ref":"trello:abc2"}\n'
+        )
+
+        # Provide the generated_id -> external_ref mapping
+        generated_id_to_external_ref = {
+            "import-abc1": "trello:abc1",
+            "import-abc2": "trello:abc2",
+        }
+
+        # Import in dry-run mode
+        external_ref_to_id = writer.import_from_jsonl(str(jsonl_file), generated_id_to_external_ref)
+
+        # Should return inverted mapping
+        assert external_ref_to_id == {
+            "trello:abc1": "import-abc1",
+            "trello:abc2": "import-abc2",
+        }
+
+    def test_import_from_jsonl_file_not_found(self):
+        """Test import_from_jsonl with missing file"""
+        writer = BeadsWriter(dry_run=True)
+
+        with pytest.raises(ValueError, match="JSONL file not found"):
+            writer.import_from_jsonl("/nonexistent/file.jsonl", {})

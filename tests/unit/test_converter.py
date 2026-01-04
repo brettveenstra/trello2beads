@@ -335,6 +335,75 @@ class TestBasicCardConversion:
 class TestDryRunMode:
     """Test dry-run mode doesn't create actual issues"""
 
+    def test_dry_run_with_comments_batch_mode(self):
+        """Test dry-run mode with comments uses batch creation and adds comments separately"""
+        mock_trello = MagicMock(spec=TrelloReader)
+        mock_trello.get_board.return_value = {
+            "id": "board123",
+            "name": "Test Board",
+            "url": "https://trello.com/b/abc123",
+        }
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
+        mock_trello.get_cards.return_value = [
+            {
+                "id": "card1",
+                "name": "Card with comments",
+                "desc": "Description",
+                "idList": "list1",
+                "pos": 1000,
+                "shortLink": "abc",
+                "shortUrl": "https://trello.com/c/abc",
+                "labels": [],
+                "checklists": [],
+                "attachments": [],
+                "badges": {"comments": 1},  # Indicate card has comments
+            }
+        ]
+        mock_trello.get_card_comments.return_value = [
+            {
+                "id": "comment1",
+                "data": {"text": "Test comment"},
+                "memberCreator": {"username": "testuser"},
+                "date": "2024-01-15T10:30:00.000Z",
+            }
+        ]
+
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            mock_beads = BeadsWriter(dry_run=True)
+
+        converter = TrelloToBeadsConverter(mock_trello, mock_beads)
+
+        batch_create_called = [False]
+        add_comment_calls = []
+
+        def mock_batch_create(issues, **kwargs):
+            batch_create_called[0] = True
+            # Verify comments were removed from batch requests
+            for issue in issues:
+                assert "comments" not in issue
+            return ["dryrun-mock"] * len(issues)
+
+        def mock_add_comment(issue_id, text, author=None):
+            add_comment_calls.append({"issue_id": issue_id, "text": text, "author": author})
+
+        with (
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "batch_create_issues", side_effect=mock_batch_create),
+            patch.object(converter.beads, "add_comment", side_effect=mock_add_comment),
+        ):
+            # NOT dry_run=True for converter - we want batch path to execute
+            # BeadsWriter is in dry_run mode, which triggers the batch_create path
+            converter.convert(dry_run=False)
+
+        # Verify batch creation was used in dry-run mode
+        assert batch_create_called[0]
+        # Verify comments were added separately with timestamp
+        assert len(add_comment_calls) == 1
+        assert "[2024-01-15]" in add_comment_calls[0]["text"]
+        assert "Test comment" in add_comment_calls[0]["text"]
+        # Author defaults to "Unknown" if memberCreator not found
+        assert add_comment_calls[0]["author"] is not None
+
     def test_dry_run_no_issues_created(self):
         """Should not create issues in dry-run mode"""
         mock_trello = MagicMock(spec=TrelloReader)
@@ -1257,6 +1326,481 @@ class TestRelatedDependencies:
 # ===== Status Mapping Tests (merged from test_mapping.py) =====
 
 # load_status_mapping is imported at the top of this file
+
+
+class TestClosedIssueWorkaround:
+    """Test closed issue workaround (import as open, update to closed after)"""
+
+    def test_closed_parent_cards_are_updated_after_import(self):
+        """Should import closed parent cards as open, then update to closed"""
+        mock_trello = MagicMock(spec=TrelloReader)
+        mock_trello.get_board.return_value = {
+            "id": "board123",
+            "name": "Test Board",
+            "url": "https://trello.com/b/abc123",
+        }
+        mock_trello.get_lists.return_value = [
+            {"id": "list1", "name": "To Do", "pos": 1000},
+            {"id": "list2", "name": "Done", "pos": 2000},
+        ]
+        mock_trello.get_cards.return_value = [
+            {
+                "id": "card1",
+                "name": "Open Card",
+                "desc": "",
+                "idList": "list1",
+                "pos": 1000,
+                "shortLink": "abc1",
+                "shortUrl": "https://trello.com/c/abc1",
+                "labels": [],
+                "checklists": [],
+                "attachments": [],
+            },
+            {
+                "id": "card2",
+                "name": "Closed Card",
+                "desc": "",
+                "idList": "list2",  # "Done" list maps to "closed"
+                "pos": 2000,
+                "shortLink": "abc2",
+                "shortUrl": "https://trello.com/c/abc2",
+                "labels": [],
+                "checklists": [],
+                "attachments": [],
+            },
+        ]
+        mock_trello.get_card_comments.return_value = []
+
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            mock_beads = BeadsWriter(dry_run=False)
+
+        converter = TrelloToBeadsConverter(mock_trello, mock_beads)
+
+        captured_jsonl_data = []
+        update_status_calls = []
+
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
+            import json
+
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
+
+        def mock_update_status(issue_id, status):
+            update_status_calls.append({"issue_id": issue_id, "status": status})
+
+        with (
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
+            patch.object(converter.beads, "update_status", side_effect=mock_update_status),
+        ):
+            converter.convert()
+
+        # Both cards should be in JSONL
+        assert len(captured_jsonl_data) == 2
+
+        # Card 1 should be open (no change needed)
+        assert captured_jsonl_data[0]["title"] == "Open Card"
+        assert captured_jsonl_data[0]["status"] == "open"
+
+        # Card 2 should be written as "open" (workaround)
+        assert captured_jsonl_data[1]["title"] == "Closed Card"
+        assert captured_jsonl_data[1]["status"] == "open"  # Written as open
+
+        # Should have 1 update_status call to close the second card
+        assert len(update_status_calls) == 1
+        assert update_status_calls[0]["issue_id"] == captured_jsonl_data[1]["id"]
+        assert update_status_calls[0]["status"] == "closed"
+
+    def test_closed_child_items_are_updated_after_import(self):
+        """Should import completed checklist items as open, then update to closed"""
+        mock_trello = MagicMock(spec=TrelloReader)
+        mock_trello.get_board.return_value = {
+            "id": "board123",
+            "name": "Test Board",
+            "url": "https://trello.com/b/abc123",
+        }
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
+        mock_trello.get_cards.return_value = [
+            {
+                "id": "card1",
+                "name": "Epic Card",
+                "desc": "",
+                "idList": "list1",
+                "pos": 1000,
+                "shortLink": "abc",
+                "shortUrl": "https://trello.com/c/abc",
+                "labels": [],
+                "checklists": [
+                    {
+                        "id": "checklist1",
+                        "name": "Tasks",
+                        "checkItems": [
+                            {"id": "item1", "name": "Incomplete task", "state": "incomplete"},
+                            {"id": "item2", "name": "Complete task", "state": "complete"},
+                        ],
+                    }
+                ],
+                "attachments": [],
+            }
+        ]
+        mock_trello.get_card_comments.return_value = []
+
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            mock_beads = BeadsWriter(dry_run=False)
+
+        converter = TrelloToBeadsConverter(mock_trello, mock_beads)
+
+        captured_jsonl_data = []
+        update_status_calls = []
+
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
+            import json
+
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
+
+        def mock_update_status(issue_id, status):
+            update_status_calls.append({"issue_id": issue_id, "status": status})
+
+        with (
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
+            patch.object(converter.beads, "add_dependency"),
+            patch.object(converter.beads, "update_status", side_effect=mock_update_status),
+        ):
+            converter.convert()
+
+        # Should have 1 epic + 2 child tasks
+        assert len(captured_jsonl_data) == 3
+
+        # All should be written as "open"
+        assert all(issue["status"] == "open" for issue in captured_jsonl_data)
+
+        # Should have 1 update_status call for the complete child
+        assert len(update_status_calls) == 1
+        assert update_status_calls[0]["status"] == "closed"
+        # Verify it's for the second child (complete task)
+        complete_child = captured_jsonl_data[2]  # Second child
+        assert update_status_calls[0]["issue_id"] == complete_child["id"]
+
+    def test_closure_handles_missing_issue_in_mapping(self):
+        """Should handle case where closed issue is not found in mapping"""
+        mock_trello = MagicMock(spec=TrelloReader)
+        mock_trello.get_board.return_value = {
+            "id": "board123",
+            "name": "Test Board",
+            "url": "https://trello.com/b/abc123",
+        }
+        mock_trello.get_lists.return_value = [
+            {"id": "list2", "name": "Done", "pos": 2000},
+        ]
+        mock_trello.get_cards.return_value = [
+            {
+                "id": "card2",
+                "name": "Closed Card",
+                "desc": "",
+                "idList": "list2",  # "Done" list maps to "closed"
+                "pos": 2000,
+                "shortLink": "abc2",
+                "shortUrl": "https://trello.com/c/abc2",
+                "labels": [],
+                "checklists": [],
+                "attachments": [],
+            },
+        ]
+        mock_trello.get_card_comments.return_value = []
+
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            mock_beads = BeadsWriter(dry_run=False)
+
+        converter = TrelloToBeadsConverter(mock_trello, mock_beads)
+
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
+            # Return empty mapping (simulating import failure)
+            return {}
+
+        with (
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
+            patch.object(converter.beads, "update_status"),
+        ):
+            # Should not raise - should handle missing mapping gracefully
+            converter.convert()
+
+    def test_closure_handles_update_status_failure(self):
+        """Should handle case where update_status fails"""
+        mock_trello = MagicMock(spec=TrelloReader)
+        mock_trello.get_board.return_value = {
+            "id": "board123",
+            "name": "Test Board",
+            "url": "https://trello.com/b/abc123",
+        }
+        mock_trello.get_lists.return_value = [
+            {"id": "list2", "name": "Done", "pos": 2000},
+        ]
+        mock_trello.get_cards.return_value = [
+            {
+                "id": "card2",
+                "name": "Closed Card",
+                "desc": "",
+                "idList": "list2",
+                "pos": 2000,
+                "shortLink": "abc2",
+                "shortUrl": "https://trello.com/c/abc2",
+                "labels": [],
+                "checklists": [],
+                "attachments": [],
+            },
+        ]
+        mock_trello.get_card_comments.return_value = []
+
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            mock_beads = BeadsWriter(dry_run=False)
+
+        converter = TrelloToBeadsConverter(mock_trello, mock_beads)
+
+        captured_jsonl_data = []
+
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
+            import json
+
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
+
+        def mock_update_status_fail(issue_id, status):
+            raise Exception("Update failed")
+
+        with (
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
+            patch.object(converter.beads, "update_status", side_effect=mock_update_status_fail),
+        ):
+            # Should not raise - should handle update failure gracefully
+            converter.convert()
+
+    def test_child_closure_handles_update_status_failure(self):
+        """Should handle case where child update_status fails"""
+        mock_trello = MagicMock(spec=TrelloReader)
+        mock_trello.get_board.return_value = {
+            "id": "board123",
+            "name": "Test Board",
+            "url": "https://trello.com/b/abc123",
+        }
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
+        mock_trello.get_cards.return_value = [
+            {
+                "id": "card1",
+                "name": "Epic Card",
+                "desc": "",
+                "idList": "list1",
+                "pos": 1000,
+                "shortLink": "abc",
+                "shortUrl": "https://trello.com/c/abc",
+                "labels": [],
+                "checklists": [
+                    {
+                        "id": "checklist1",
+                        "name": "Tasks",
+                        "checkItems": [
+                            {"id": "item1", "name": "Complete task", "state": "complete"},
+                        ],
+                    }
+                ],
+                "attachments": [],
+            }
+        ]
+        mock_trello.get_card_comments.return_value = []
+
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            mock_beads = BeadsWriter(dry_run=False)
+
+        converter = TrelloToBeadsConverter(mock_trello, mock_beads)
+
+        captured_jsonl_data = []
+        update_call_count = [0]
+
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
+            import json
+
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
+
+        def mock_update_status_fail(issue_id, status):
+            update_call_count[0] += 1
+            raise Exception("Child update failed")
+
+        with (
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
+            patch.object(converter.beads, "add_dependency"),
+            patch.object(converter.beads, "update_status", side_effect=mock_update_status_fail),
+        ):
+            # Should not raise - should handle child update failure gracefully
+            converter.convert()
+
+        # Verify update was attempted
+        assert update_call_count[0] > 0
+
+    def test_child_closure_handles_missing_issue_in_mapping(self):
+        """Should handle case where child closed issue is not found in mapping"""
+        mock_trello = MagicMock(spec=TrelloReader)
+        mock_trello.get_board.return_value = {
+            "id": "board123",
+            "name": "Test Board",
+            "url": "https://trello.com/b/abc123",
+        }
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
+        mock_trello.get_cards.return_value = [
+            {
+                "id": "card1",
+                "name": "Epic Card",
+                "desc": "",
+                "idList": "list1",
+                "pos": 1000,
+                "shortLink": "abc",
+                "shortUrl": "https://trello.com/c/abc",
+                "labels": [],
+                "checklists": [
+                    {
+                        "id": "checklist1",
+                        "name": "Tasks",
+                        "checkItems": [
+                            {"id": "item1", "name": "Complete task", "state": "complete"},
+                        ],
+                    }
+                ],
+                "attachments": [],
+            }
+        ]
+        mock_trello.get_card_comments.return_value = []
+
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            mock_beads = BeadsWriter(dry_run=False)
+
+        converter = TrelloToBeadsConverter(mock_trello, mock_beads)
+
+        parent_captured = []
+
+        def mock_import_parent(jsonl_path, generated_id_to_external_ref=None):
+            import json
+
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    parent_captured.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in parent_captured}
+
+        def mock_import_child(jsonl_path, generated_id_to_external_ref=None):
+            # Return empty mapping for children (simulating import failure)
+            return {}
+
+        import_call_count = [0]
+
+        def mock_import_router(jsonl_path, generated_id_to_external_ref=None):
+            import_call_count[0] += 1
+            if import_call_count[0] == 1:
+                return mock_import_parent(jsonl_path, generated_id_to_external_ref)
+            else:
+                return mock_import_child(jsonl_path, generated_id_to_external_ref)
+
+        with (
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_router),
+            patch.object(converter.beads, "add_dependency"),
+            patch.object(converter.beads, "update_status"),
+        ):
+            # Should not raise - should handle missing child mapping gracefully
+            converter.convert()
+
+
+class TestChecklistURLHandling:
+    """Test handling of URL-only checklist items"""
+
+    def test_checklist_with_url_only_items(self):
+        """Should handle checklist items that are just URLs"""
+        mock_trello = MagicMock(spec=TrelloReader)
+        mock_trello.get_board.return_value = {
+            "id": "board123",
+            "name": "Test Board",
+            "url": "https://trello.com/b/abc123",
+        }
+        mock_trello.get_lists.return_value = [{"id": "list1", "name": "To Do", "pos": 1000}]
+        mock_trello.get_cards.return_value = [
+            {
+                "id": "card1",
+                "name": "Epic Card",
+                "desc": "",
+                "idList": "list1",
+                "pos": 1000,
+                "shortLink": "abc",
+                "shortUrl": "https://trello.com/c/abc",
+                "labels": [],
+                "checklists": [
+                    {
+                        "id": "checklist1",
+                        "name": "Resources",
+                        "checkItems": [
+                            {
+                                "id": "item1",
+                                "name": "https://example.com/docs",
+                                "state": "incomplete",
+                            },
+                            {"id": "item2", "name": "Normal task", "state": "incomplete"},
+                        ],
+                    }
+                ],
+                "attachments": [],
+            }
+        ]
+        mock_trello.get_card_comments.return_value = []
+
+        with patch.object(BeadsWriter, "_check_bd_available"):
+            mock_beads = BeadsWriter(dry_run=False)
+
+        converter = TrelloToBeadsConverter(mock_trello, mock_beads)
+
+        captured_jsonl_data = []
+
+        def mock_import_from_jsonl(jsonl_path, generated_id_to_external_ref=None):
+            import json
+
+            with open(jsonl_path) as f:
+                for line in f:
+                    issue_data = json.loads(line)
+                    captured_jsonl_data.append(issue_data)
+            return {issue["external_ref"]: issue["id"] for issue in captured_jsonl_data}
+
+        with (
+            patch.object(converter.beads, "get_prefix", return_value="testproject"),
+            patch.object(converter.beads, "import_from_jsonl", side_effect=mock_import_from_jsonl),
+            patch.object(converter.beads, "add_dependency"),
+            patch.object(converter.beads, "update_status"),
+        ):
+            converter.convert()
+
+        # Should have 1 epic + 2 children
+        assert len(captured_jsonl_data) == 3
+
+        # First child should be URL-only item with generated title
+        url_child = captured_jsonl_data[1]
+        assert url_child["title"] == "Resources - 1"
+        assert "URL: https://example.com/docs" in url_child["description"]
+
+        # Second child should be normal task
+        normal_child = captured_jsonl_data[2]
+        assert normal_child["title"] == "Normal task"
 
 
 class TestListToStatusMapping:
