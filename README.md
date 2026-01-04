@@ -431,7 +431,7 @@ python3 -m trello2beads
 
 ### Custom Paths
 
-Override default paths using environment variables:
+Override default paths using environment variables or command-line flags:
 
 ```bash
 # Use different beads database
@@ -443,8 +443,16 @@ export SNAPSHOT_PATH=/path/to/snapshot.json
 # Use different .env file
 export TRELLO_ENV_FILE=/path/to/credentials.env
 
+# Override beads prefix detection (useful for troubleshooting)
+trello2beads --prefix myproject
+
 python3 -m trello2beads
 ```
+
+**Prefix Detection**: The tool automatically detects your beads prefix from the database. Use `--prefix` to override this if:
+- Prefix detection fails (rare)
+- You want to use a different prefix than what's in the database
+- Troubleshooting import issues
 
 ### Snapshot Caching
 
@@ -465,7 +473,11 @@ The converter runs in two passes:
 
 **Pass 1: Create Issues**
 1. Fetches all cards from Trello (or loads from snapshot)
-2. Creates beads issues with mapped status (serial or parallel mode)
+2. Creates beads issues using **JSONL bulk import** for efficiency:
+   - Writes issues to temporary JSONL file
+   - Uses `bd import --rename-on-import` to preserve `external_ref` (Trello card IDs)
+   - Significantly faster than individual `bd create` calls
+   - Fallback: Uses individual creation if bulk import unavailable
 3. Builds URL mapping (Trello card ID → beads issue ID)
 
 **Pass 2: Resolve References**
@@ -476,6 +488,31 @@ The converter runs in two passes:
 **Execution Modes**:
 - **Serial (default)**: Creates issues one at a time - safe, predictable, easier to debug
 - **Parallel (opt-in)**: Creates multiple issues concurrently using `--max-workers N` - 5-8x faster on large boards
+
+### Closed Issue Workaround
+
+The converter implements a **two-phase import strategy** to preserve closed/completed issues with 100% fidelity:
+
+**The Problem**: `bd import --rename-on-import` skips issues with `status: closed`, causing data loss for completed cards and checklist items.
+
+**The Solution**:
+1. **Phase 1**: Import closed issues as `status: open` (temporary), track them in a `pending_closures` list
+2. **Phase 1b**: After parent card import succeeds, update tracked parent issues to `status: closed`
+3. **Phase 2**: After child checklist items import succeeds, update tracked child issues to `status: closed`
+
+**What This Preserves**:
+- ✅ Closed/archived Trello cards → beads issues with `status: closed`
+- ✅ Completed checklist items → child issues with `status: closed`
+- ✅ All metadata, comments, attachments, labels preserved
+- ✅ No data loss - 100% import fidelity
+
+**Technical Details**:
+- Uses `external_ref` field to track issues requiring closure (e.g., `trello:abc123`, `trello:abc123:item-xyz`)
+- Parent cards and child items handled separately to avoid dependency conflicts
+- Failures logged but don't break the overall conversion
+- Transparent to users - works automatically
+
+This ensures your "Done" lists and completed tasks are properly preserved as closed issues in beads.
 
 ### Enhanced Card Reading
 
@@ -609,7 +646,7 @@ The original list name is preserved as a label (`list:To Do`) for filtering.
 | Card description | Issue description | Base content |
 | Checklists | Markdown checklists | Preserves checked state |
 | Attachments | Markdown links | With file sizes |
-| Comments | Quoted text with author/date | Chronological order |
+| Comments | Native beads comments | With author/date, chronological |
 | Labels | Labels (`trello-label:name`) | Only if present on card |
 | List position | Creation order | Maintained |
 | Priority | P2 (medium) | Hard-coded in V1 |
@@ -619,12 +656,13 @@ The original list name is preserved as a label (`list:To Do`) for filtering.
 
 ✅ **Fully Supported**:
 - Card names and descriptions
-- Checklists (with completion status)
+- Checklists (with completion status, including closed/completed items)
 - Attachments (as links)
-- Comments (with author and date)
+- Comments (as native beads comments with author and date)
 - Trello labels
 - Card references (URLs converted to beads issue IDs)
 - List membership (as labels)
+- Closed/archived cards (via two-phase import workaround)
 - **Card members** (assigned users) - fetched with full relationships
 - **Custom field items** (custom field values) - all field types supported
 - **Stickers** (visual decorations) - preserved with positioning
@@ -873,7 +911,7 @@ A: They're preserved as Markdown links in the issue description. Files are NOT d
 A: Yes! Use `--status-mapping path/to/mapping.json` to override default keywords. See the "Custom Status Mapping" section for details.
 
 **Q: Where are my comments?**
-A: Comments are added to the issue description in a `## Comments` section, preserving author, date, and text.
+A: Comments are added as native beads comments using `bd add_comment`, preserving author, date, and text. View them with `bd show <issue-id>`.
 
 **Q: How do I find a specific card after conversion?**
 A: Each issue has the Trello short link in its `external_ref` field (e.g., `trello:abc123`). Use beads queries or search the `.beads/issues.jsonl` file.
