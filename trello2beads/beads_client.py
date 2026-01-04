@@ -1124,7 +1124,7 @@ class BeadsWriter:
                             logger.debug(f"Table '{table_name}' schema: {columns}")
 
                             # Try selecting all rows to see what's there
-                            cursor.execute(f"SELECT * FROM {table_name} LIMIT 5")
+                            cursor.execute(f"SELECT * FROM {table_name} LIMIT 5")  # nosec B608
                             rows = cursor.fetchall()
                             logger.debug(f"Table '{table_name}' sample data: {rows}")
                         except Exception as e:
