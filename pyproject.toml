@@ -53,6 +53,8 @@ Issues = "https://github.com/brettveenstra/trello2beads/issues"
 
 [project.scripts]
 trello2beads = "trello2beads.cli:main"
+trello2beads-cleanup = "trello2beads.scripts.cleanup_trello_import:main"
+trello2beads-reset = "trello2beads.scripts.reset_trello_import:main"
 
 [tool.ruff]
 line-length = 100

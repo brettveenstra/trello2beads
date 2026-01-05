@@ -465,6 +465,30 @@ rm trello_snapshot.json
 python3 -m trello2beads
 ```
 
+### Re-running Imports
+
+Need to re-run an import? Two helper commands handle cleanup:
+
+**Quick Reset (Safe)**:
+```bash
+# Close imported issues (uses bd close)
+trello2beads-cleanup --list        # Preview
+trello2beads-cleanup --delete-all  # Close all
+```
+
+**Full Reset (Nuclear)**:
+```bash
+# Delete issues from database (with automatic backup)
+trello2beads-reset --list        # Preview
+trello2beads-reset --delete-all  # Complete deletion
+```
+
+**When to use which**:
+- `trello2beads-cleanup` - Everyday reset, closes issues (safer)
+- `trello2beads-reset` - Database corruption or need truly clean slate
+
+Both support `--keep issue1 issue2` to preserve specific issues.
+
 ## How It Works
 
 ### Conversion Process
