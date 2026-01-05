@@ -287,14 +287,30 @@ class TrelloToBeadsConverter:
                 if updated_desc:
                     desc_parts.append(updated_desc)
 
-                # Add checklists (unchanged)
+                # Add checklists (with URL resolution)
                 if card.get("checklists"):
                     desc_parts.append("\n## Checklists\n")
                     for checklist in card["checklists"]:
                         desc_parts.append(f"### {checklist['name']}\n")
                         for item in checklist.get("checkItems", []):
                             status_mark = "✓" if item["state"] == "complete" else "☐"
-                            desc_parts.append(f"- [{status_mark}] {item['name']}")
+
+                            # Resolve Trello URLs in checklist item names
+                            item_name = item['name']
+                            item_matches = trello_url_pattern.finditer(item_name)
+                            for match in item_matches:
+                                full_url = match.group(0)
+                                short_link = match.group(1)
+                                target_beads_id = self.card_url_map.get(short_link)
+
+                                if target_beads_id and target_beads_id != beads_id:
+                                    beads_ref = f"See {target_beads_id}"
+                                    item_name = item_name.replace(full_url, beads_ref)
+                                    referenced_beads_ids.add(target_beads_id)
+                                elif not target_beads_id:
+                                    broken_references.append(full_url)
+
+                            desc_parts.append(f"- [{status_mark}] {item_name}")
                         desc_parts.append("")
 
                 # Add attachments (with references if any)
@@ -779,6 +795,23 @@ class TrelloToBeadsConverter:
                             is_url_only = item_name.strip().startswith(("http://", "https://"))
                             url_in_description = ""
 
+                            # Resolve Trello URLs in checklist item names (for child issues)
+                            # Note: By this point, all parent cards are in card_url_map
+                            resolved_item_name = item_name
+                            trello_url_pattern_local = re.compile(
+                                r"(?:https?://)?trello\.com/c/([a-zA-Z0-9]+)(?:/[^\s\)]*)?")
+                            item_url_matches = trello_url_pattern_local.finditer(item_name)
+                            for match in item_url_matches:
+                                full_url = match.group(0)
+                                short_link = match.group(1)
+                                target_beads_id = self.card_url_map.get(short_link)
+
+                                if target_beads_id:
+                                    beads_ref = f"See {target_beads_id}"
+                                    resolved_item_name = resolved_item_name.replace(full_url, beads_ref)
+                                    logger.debug(
+                                        f"Resolved Trello URL in checklist item: {short_link} → {target_beads_id}")
+
                             if is_url_only:
                                 # URL-only item: generate meaningful title from checklist name + position
                                 # e.g., "Absorb Artifacts - 1" instead of "https://docs.google.com/..."
@@ -786,11 +819,11 @@ class TrelloToBeadsConverter:
                                 child_title = f"{checklist_name} - {position}"
                                 url_in_description = f"\n\nURL: {item_name.strip()}"
                             else:
-                                # Normal item: use item name as title
-                                child_title = f"{item_name}"
+                                # Normal item: use resolved name as title
+                                child_title = f"{resolved_item_name}"
                                 if len(card["checklists"]) > 1:
                                     # Multiple checklists - add checklist name for clarity
-                                    child_title = f"[{checklist_name}] {item_name}"
+                                    child_title = f"[{checklist_name}] {resolved_item_name}"
 
                             # Child description references parent epic
                             child_desc = f"Part of epic: {card['name']}\nChecklist: {checklist_name}{url_in_description}"
